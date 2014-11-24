@@ -1,7 +1,8 @@
 add_executable(
   unet
     unet.cpp
-    layer.hpp
+    mlp.hpp
+    mlp.cpp
     utilities.hpp
 )
 target_link_libraries(
