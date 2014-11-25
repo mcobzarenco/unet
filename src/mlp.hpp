@@ -1,3 +1,6 @@
+#pragma once
+
+#include "init.hpp"
 #include "stan/agrad/rev/matrix.hpp"
 #include "stan/agrad/rev/functions/inv_logit.hpp"
 #include "stan/agrad/autodiff.hpp"
@@ -10,7 +13,6 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <random>
 
 
 namespace unet {
@@ -35,15 +37,18 @@ private:
 
 public:
   MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
-      bool softmax, int32_t seed=0);
-  MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
-      bool softmax, std::function<double()> generate_weight);
+      bool softmax, int32_t seed=0)
+    : MLP(n_input, n_hidden, n_output, softmax,
+          normal_weight_generator(0, .001, seed)) {}
+
+  inline MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
+             bool softmax, std::function<double()> generate_weight);
 
   inline uint32_t num_params() const;
 
-  Eigen::MatrixXd operator()(const Eigen::MatrixXd& X) const;
+  inline Eigen::MatrixXd operator()(const Eigen::MatrixXd& X) const;
 
-  L2Error l2_error(const Eigen::MatrixXd& X, const Eigen::MatrixXd& y);
+  inline L2Error l2_error(const Eigen::MatrixXd& X, const Eigen::MatrixXd& y);
 
   const uint32_t n_input, n_hidden, n_output;
   const bool softmax;
@@ -54,7 +59,7 @@ private:
       : mlp_(mlp), X_(X), y_(y) {}
 
     template <typename T>
-    T operator()(Eigen::Matrix<T, Eigen::Dynamic, 1>& w) const;
+    inline T operator()(Eigen::Matrix<T, Eigen::Dynamic, 1>& w) const;
 
     void minimize_gd(uint32_t max_iter=500);
   private:
@@ -63,7 +68,7 @@ private:
   };
 
   template <typename T>
-  static Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> function(
+  static inline Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> function(
     uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
     const Eigen::Matrix<T, Eigen::Dynamic, 1>& weights,
     const Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>& X);
@@ -71,34 +76,16 @@ private:
   Eigen::Matrix<double, Eigen::Dynamic, 1> weights_;
 };
 
-MLP::MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
-         bool softmax, int32_t seed)
-  : n_input{n_input}, n_hidden{n_hidden}, n_output{n_output}, softmax{softmax}
-     {
-  CHECK(n_input > 0 && n_hidden > 0 && n_output > 0);
-  CHECK(n_output > 1 || !softmax);
-  weights_.resize(num_params());
-  if (seed == 0) {
-    std::random_device rd;
-    seed = rd();
-  }
-  std::mt19937 generator{seed};
-  std::normal_distribution<> normal(0, .001);
-  for (int i = 0; i < weights_.size(); ++i) {
-    weights_(i) = normal(generator);
-  }
-  // LOG(INFO) << "initial weights: " << weights_;
-}
-
 MLP::MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
-    std::function<double()> generate_weight)
+         std::function<double()> generate_weight)
   : n_input{n_input}, n_hidden{n_hidden}, n_output{n_output}, softmax{softmax} {
-  CHECK(n_input > 0 && n_hidden > 0 && n_output > 0);
-  CHECK(n_output > 1 || !softmax);
-  weights_.resize(num_params());
-  for (int i = 0; i < weights_.size(); ++i) {
-    weights_(i) = generate_weight();
-  }
+    CHECK(n_input > 0 && n_hidden > 0 && n_output > 0);
+    CHECK(n_output > 1 || !softmax)
+      << "There needs to be more than one output unit for softmax to make sense.";
+    weights_.resize(num_params());
+    for (int i = 0; i < weights_.size(); ++i) {
+      weights_(i) = generate_weight();
+    }
 }
 
 uint32_t MLP::num_params() const {
@@ -191,6 +178,5 @@ void MLP::L2Error::minimize_gd(uint32_t max_iter) {
   // std::cout << "df(w): " << grad_net.transpose() << "\n";
   std::cout << "net:\n" << mlp_(X_) << "\n";
 }
-
 
 }  // unet namespace
