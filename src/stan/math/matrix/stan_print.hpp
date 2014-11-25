@@ -9,12 +9,12 @@ namespace stan {
     // prints used in generator for print() statements in modeling language
 
     template <typename T>
-    void stan_print(std::ostream* o, const T& x) {
+    inline void stan_print(std::ostream* o, const T& x) {
       *o << x;
     }
-    
+
     template <typename T>
-    void stan_print(std::ostream* o, const std::vector<T>& x) {
+    inline void stan_print(std::ostream* o, const std::vector<T>& x) {
       *o << '[';
       for (int i = 0; i < x.size(); ++i) {
         if (i > 0) *o << ',';
@@ -24,7 +24,7 @@ namespace stan {
     }
 
     template <typename T>
-    void stan_print(std::ostream* o, const Eigen::Matrix<T,Eigen::Dynamic,1>& x) {
+    inline void stan_print(std::ostream* o, const Eigen::Matrix<T,Eigen::Dynamic,1>& x) {
       *o << '[';
       for (int i = 0; i < x.size(); ++i) {
         if (i > 0) *o << ',';
@@ -34,7 +34,7 @@ namespace stan {
     }
 
     template <typename T>
-    void stan_print(std::ostream* o, const Eigen::Matrix<T,1,Eigen::Dynamic>& x) {
+    inline void stan_print(std::ostream* o, const Eigen::Matrix<T,1,Eigen::Dynamic>& x) {
       *o << '[';
       for (int i = 0; i < x.size(); ++i) {
         if (i > 0) *o << ',';
@@ -44,7 +44,7 @@ namespace stan {
     }
 
     template <typename T>
-    void stan_print(std::ostream* o, 
+    inline void stan_print(std::ostream* o,
                     const Eigen::Matrix<T,Eigen::Dynamic,Eigen::Dynamic>& x) {
       *o << '[';
       for (int i = 0; i < x.rows(); ++i) {

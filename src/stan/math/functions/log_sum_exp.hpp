@@ -15,26 +15,26 @@ namespace stan {
      * \f$\log (\exp(a) + \exp(b)) = m + \log(\exp(a-m) + \exp(b-m))\f$,
      *
      * where \f$m = max(a,b)\f$.
-     * 
+     *
      *
        \f[
-       \mbox{log\_sum\_exp}(x,y) = 
+       \mbox{log\_sum\_exp}(x,y) =
        \begin{cases}
          \ln(\exp(x)+\exp(y)) & \mbox{if } -\infty\leq x,y \leq \infty \\[6pt]
          \textrm{NaN} & \mbox{if } x = \textrm{NaN or } y = \textrm{NaN}
        \end{cases}
        \f]
-       
+
        \f[
-       \frac{\partial\,\mbox{log\_sum\_exp}(x,y)}{\partial x} = 
+       \frac{\partial\,\mbox{log\_sum\_exp}(x,y)}{\partial x} =
        \begin{cases}
          \frac{\exp(x)}{\exp(x)+\exp(y)} & \mbox{if } -\infty\leq x,y \leq \infty \\[6pt]
          \textrm{NaN} & \mbox{if } x = \textrm{NaN or } y = \textrm{NaN}
        \end{cases}
        \f]
-       
+
        \f[
-       \frac{\partial\,\mbox{log\_sum\_exp}(x,y)}{\partial y} = 
+       \frac{\partial\,\mbox{log\_sum\_exp}(x,y)}{\partial y} =
        \begin{cases}
          \frac{\exp(y)}{\exp(x)+\exp(y)} & \mbox{if } -\infty\leq x,y \leq \infty \\[6pt]
          \textrm{NaN} & \mbox{if } x = \textrm{NaN or } y = \textrm{NaN}
@@ -61,24 +61,24 @@ namespace stan {
      * calculations.
      *
      * \f$\log \sum_{n=1}^N \exp(x_n) = \max(x) + \log \sum_{n=1}^N \exp(x_n - \max(x))\f$.
-     * 
+     *
      * @param[in] x array of specified values
      * @return The log of the sum of the exponentiated vector values.
      */
-    double log_sum_exp(const std::vector<double>& x) {
+    inline double log_sum_exp(const std::vector<double>& x) {
       using std::numeric_limits;
       using std::log;
       using std::exp;
       double max = -numeric_limits<double>::infinity();
-      for (size_t ii = 0; ii < x.size(); ii++) 
-        if (x[ii] > max) 
+      for (size_t ii = 0; ii < x.size(); ii++)
+        if (x[ii] > max)
           max = x[ii];
-            
+
       double sum = 0.0;
-      for (size_t ii = 0; ii < x.size(); ii++) 
-        if (x[ii] != -numeric_limits<double>::infinity()) 
+      for (size_t ii = 0; ii < x.size(); ii++)
+        if (x[ii] != -numeric_limits<double>::infinity())
           sum += exp(x[ii] - max);
-          
+
       return max + log(sum);
     }
 

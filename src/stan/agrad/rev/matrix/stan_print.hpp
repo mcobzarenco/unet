@@ -7,7 +7,7 @@
 namespace stan {
   namespace agrad {
 
-    void stan_print(std::ostream* o, const var& x) {
+    inline void stan_print(std::ostream* o, const var& x) {
       *o << x.val();
     }
 

@@ -62,9 +62,9 @@ namespace stan {
       }
     };
 
-    
+
     /**
-     * This function is provided for Stan users 
+     * This function is provided for Stan users
      * that want to compute gradients without
      * using Stan's auto-diff.
      *
@@ -72,20 +72,20 @@ namespace stan {
      * variables, and the gradients of this expression with
      * respect to the indepedent variables.
      *
-     * (For advanced users, a faster version that 
+     * (For advanced users, a faster version that
      *  doesn't involve copying vectors exists can
      *  be written.)
      *
      * @param value The value of the resulting dependent variable.
      * @param vars The independent variables.
-     * @param gradients The value of the gradients of the dependent 
+     * @param gradients The value of the gradients of the dependent
      *   variable with respect to the independent variables.
-     * @returns An auto-diff variable that uses the precomputed 
+     * @returns An auto-diff variable that uses the precomputed
      *   gradients provided.
      */
-    var precomputed_gradients(const double value,
-                              const std::vector<var>& vars,
-                              const std::vector<double>& gradients) {
+    inline var precomputed_gradients(const double value,
+                                     const std::vector<var>& vars,
+                                     const std::vector<double>& gradients) {
       std::vector<vari *> varis;
       varis.resize(vars.size());
       for (size_t n = 0; n < vars.size(); n++) {
