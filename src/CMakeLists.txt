@@ -2,7 +2,6 @@ add_executable(
   unet
     unet.cpp
     mlp.hpp
-    mlp.cpp
     utilities.hpp
     init.hpp
 )
