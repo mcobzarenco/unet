@@ -4,6 +4,7 @@ add_executable(
     mlp.hpp
     mlp.cpp
     utilities.hpp
+    init.hpp
 )
 target_link_libraries(
   unet
@@ -11,3 +12,7 @@ target_link_libraries(
     ${GLOG_LIBRARY}
     ${Boost_LIBRARIES}
 )
+
+if(MKL_ROOT)
+    target_link_libraries(unet pthread m)
+endif()
