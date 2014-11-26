@@ -1,4 +1,6 @@
 #include "mlp.hpp"
+#include "minimize.hpp"
+#include "objectives.hpp"
 #include "utilities.hpp"
 
 #include <boost/program_options.hpp>
@@ -171,13 +173,15 @@ int main(int argc, char **argv) {
               << n_hidden << " -> " << n_output
               << " (output = " << (softmax ? "softmax" : "linear")
               << ")";
-    unet::MLP mlp(n_input, n_hidden, n_output, softmax);
+    unet::MLP mlp{n_input, n_hidden, n_output, softmax};
+    unet::MomentumGD minimize{0.01, 0.8, 5, 1.03, 0.8, 0.999};
 
-    for (int i = 0; i < 300; ++i) {
+    for (int i = 0; i < 500; ++i) {
       LOG(INFO) << "Starting batch number " << i;
       auto batch = read_batch();
       // batch.input /= 100.0;
-      mlp.l2_error(batch.input, batch.target).minimize_gd(5);
+      unet::L2Error<unet::MLP> l2_error{mlp, batch.input, batch.target};
+      minimize.fit_batch(l2_error);
     }
   } catch (const boost::program_options::error& e) {
     cerr << e.what() << "\n";
