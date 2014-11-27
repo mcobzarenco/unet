@@ -14,8 +14,9 @@ enable_testing(true)
 
 add_executable(
   test_all
-    test_utilities.cpp
     test_all.cpp
+    test_utilities.cpp
+    test_objectives.cpp
     ${source_dir}
 )
 target_link_libraries(
@@ -29,5 +30,5 @@ target_link_libraries(
 
 add_custom_target(
    test test_all 1>&2
-   DEPENDS test_all
+   DEPENDS test_all GTest
 )

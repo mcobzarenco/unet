@@ -17,8 +17,9 @@ struct UpdateSummary {
 };
 
 struct MomentumGD {
-  MomentumGD(double alpha = 1.01, double alpha_increase = 1.01, double alpha_decay = 0.8,
-             double mu = 0.8, double mu_decay = 0.9999, uint32_t iter = 5)
+  MomentumGD(double alpha = 1.01, double alpha_increase = 1.01,
+             double alpha_decay = 0.8, double mu = 0.8,
+             double mu_decay = 0.9999, uint32_t iter = 5)
     : alpha{alpha}, alpha_increase{alpha_increase}, alpha_decay{alpha_decay},
       mu{mu}, mu_decay{mu_decay}, iter{iter} {}
 
@@ -70,8 +71,9 @@ private:
 };
 
 struct NesterovGD {
-  NesterovGD(double alpha = 1.01, double alpha_increase = 1.01, double alpha_decay = 0.8,
-             double mu = 0.8, double mu_decay = 0.9999, uint32_t iter = 5)
+  NesterovGD(double alpha = 1.01, double alpha_increase = 1.01,
+             double alpha_decay = 0.8, double mu = 0.8,
+             double mu_decay = 0.9999, uint32_t iter = 5)
     : alpha{alpha}, alpha_increase{alpha_increase}, alpha_decay{alpha_decay},
       mu{mu}, mu_decay{mu_decay}, iter{iter} {}
 
@@ -124,8 +126,6 @@ struct NesterovGD {
       //   LOG(INFO) << "new alpha = " << alpha << " new mu = " << mu;
       // }
     }
-
-    // std::cout << "df(w): " << grad.transpose() << "\n";
   }
 
 private:

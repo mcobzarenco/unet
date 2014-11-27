@@ -1,6 +1,8 @@
 #pragma once
 
 #include "init.hpp"
+#include "typedefs.hpp"
+#include "utilities.hpp"
 #include "stan/agrad/rev/matrix.hpp"
 #include "stan/agrad/rev/functions/tanh.hpp"
 #include "stan/agrad/rev/functions/exp.hpp"
@@ -19,12 +21,6 @@ namespace unet {
 
 using std::exp;
 using stan::agrad::exp;
-
-template<typename T>
-using DynamicMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
-
-template<typename T>
-using DynamicVector = Eigen::Matrix<T, Eigen::Dynamic, 1>;
 
 inline double sigmoid(double x) {
   return 1.0 / (1.0 + std::exp(-2.0 * x));
@@ -124,12 +120,7 @@ DynamicMatrix<T> MLP::function(
   Matrix V_out{V * H_out};
   V_out.colwise() += Vb;
   if (softmax) {
-    std::transform(V_out.data(), V_out.data() + V_out.size(), V_out.data(),
-                   [] (const T& x) {return exp(x);});
-    const Vector exp_sum{V_out.colwise().sum()};
-    for (int32_t i{0}; i < V_out.cols(); ++i) {
-      V_out.col(i) /= exp_sum[i];
-    }
+    softmax_in_place(V_out);
   }
   return V_out;
 }

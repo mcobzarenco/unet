@@ -19,7 +19,7 @@ using Eigen::Matrix;
 using Eigen::Dynamic;
 
 namespace {
-constexpr char VERSION[]{"0.0.1"};
+constexpr char VERSION[]{"0.0.2"};
 
 // Name of command line arguments:
 constexpr const char* ARG_MODEL{"model"};
@@ -31,8 +31,10 @@ constexpr const char* ARG_TARGET_CATEGORY{"target-category"};
 constexpr const char* ARG_N_CATEGORIES{"n-categories"};
 
 constexpr const char* ARG_BATCH_SIZE{"batch-size"};
+constexpr const char* ARG_N_BATCHES{"n-batches"};
 
-constexpr const int32_t DEFAULT_BATCH_SIZE{100};
+constexpr const uint32_t DEFAULT_BATCH_SIZE{100};
+constexpr const uint32_t DEFAULT_N_BATCHES{100};
 constexpr const char* DEFAULT_MODEL{"mlp"};
 
 }  // anonymous namespace
@@ -58,12 +60,12 @@ int main(int argc, char **argv) {
   string input_range_str, target_range_str;
   bool softmax{false};
   uint32_t target_category{0}, n_categories{0};
-  uint32_t batch_size{0};
+  uint32_t batch_size{0}, n_batches{0};
   uint32_t n_input{0}, n_hidden{0}, n_output{0};
 
   stringstream desc_stream;
   desc_stream
-    << "μnet - deep neural networks trained with Hessian free optimisation "
+    << "μnet - deep neural networks trained with SGD or Hessian free optimisation "
     << "(version " << VERSION << ")";
   po::options_description description{desc_stream.str()};
   description.add_options()
@@ -88,9 +90,12 @@ int main(int argc, char **argv) {
       "(i.e. an integer counting from 0).")
     (ARG_N_CATEGORIES, po::value<uint32_t>(&n_categories)
      ->value_name("NUM"), (string {"[Classification] Use with --"} +
-     ARG_N_CATEGORIES + "; How many categories there are in total.").c_str())
+     ARG_TARGET_CATEGORY + "; How many categories there are in total.").c_str())
     (ARG_BATCH_SIZE, po::value<uint32_t>(&batch_size)
-     ->value_name("NUM")->default_value(DEFAULT_BATCH_SIZE), "Mini batch size.");
+     ->value_name("NUM")->default_value(DEFAULT_BATCH_SIZE), "Mini batch size.")
+    (ARG_N_BATCHES, po::value<uint32_t>(&n_batches)
+     ->value_name("NUM")->default_value(DEFAULT_N_BATCHES),
+     "Total number of mini batches.");
 
   auto variables = po::variables_map{};
   try {
@@ -174,14 +179,20 @@ int main(int argc, char **argv) {
               << " (output = " << (softmax ? "softmax" : "linear")
               << ")";
     unet::MLP mlp{n_input, n_hidden, n_output, softmax};
-    unet::MomentumGD minimize{0.01, 0.8, 5, 1.03, 0.8, 0.999};
+    unet::NesterovGD minimize{0.005, 1.001, 0.8, 0.7, 0.9999, 3};
 
-    for (int i = 0; i < 500; ++i) {
-      LOG(INFO) << "Starting batch number " << i;
+
+    for (uint32_t n_batch = 0; n_batch < n_batches; ++n_batch) {
+      LOG(INFO) << "Starting mini batch number " << n_batch;
       auto batch = read_batch();
-      // batch.input /= 100.0;
-      unet::L2Error<unet::MLP> l2_error{mlp, batch.input, batch.target};
-      minimize.fit_batch(l2_error);
+      // batch.input.segment(1, 786).array() /= 100.0;
+      if (softmax) {
+        unet::CrossEntropy<unet::MLP> cross_ent{mlp, batch.input, batch.target};
+        minimize.fit_batch(cross_ent);
+      } else {
+        unet::L2Error<unet::MLP> l2_error{mlp, batch.input, batch.target};
+        minimize.fit_batch(l2_error);
+      }
     }
   } catch (const boost::program_options::error& e) {
     cerr << e.what() << "\n";

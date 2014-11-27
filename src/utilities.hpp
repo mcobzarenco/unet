@@ -1,5 +1,7 @@
 #pragma once
 
+#include "typedefs.hpp"
+
 #include <boost/optional.hpp>
 #include <Eigen/Dense>
 #include <glog/logging.h>
@@ -132,5 +134,15 @@ struct OneHotEncoder {
   const uint32_t feature_index;
   const uint32_t out_size;
 };
+
+template <typename T>
+void softmax_in_place(DynamicMatrix<T>& X) {
+  std::transform(X.data(), X.data() + X.size(), X.data(),
+                 [] (const T& x) {return exp(x);});
+  const DynamicVector<T> exp_sum{X.colwise().sum()};
+  for (int32_t i{0}; i < X.cols(); ++i) {
+    X.col(i) /= exp_sum[i];
+  }
+}
 
 }  // namespace unet
