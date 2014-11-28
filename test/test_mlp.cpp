@@ -4,16 +4,11 @@
 #include <gtest/gtest.h>
 
 #include <iostream>
-#include <sstream>
-#include <string>
-#include <utility>
-#include <vector>
 
 
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-
 
 TEST(MLP, StructuredWeights) {
   unet::MLP mlp{2, 2, 1, false};

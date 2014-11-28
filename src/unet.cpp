@@ -2,6 +2,7 @@
 #include "minimize.hpp"
 #include "objectives.hpp"
 #include "utilities.hpp"
+#include "serialize.hpp"
 
 #include <boost/program_options.hpp>
 #include <glog/logging.h>
@@ -12,17 +13,18 @@
 #include <string>
 #include <sstream>
 #include <utility>
+#include <vector>
 
-
-using namespace std;
-using Eigen::Matrix;
-using Eigen::Dynamic;
 
 namespace {
 constexpr char VERSION[]{"0.0.2"};
 
 // Name of command line arguments:
 constexpr const char* ARG_MODEL{"model"};
+constexpr const char* ARG_LOAD{"load"};
+constexpr const char* ARG_SAVE{"save"};
+constexpr const char* ARG_LOAD_JSON{"load-json"};
+constexpr const char* ARG_SAVE_JSON{"save-json"};
 constexpr const char* ARG_MLP_N_HIDDEN{"n-hidden"};
 constexpr const char* ARG_TRAIN{"train"};
 constexpr const char* ARG_INPUT_RANGE{"input"};
@@ -37,51 +39,63 @@ constexpr const uint32_t DEFAULT_BATCH_SIZE{100};
 constexpr const uint32_t DEFAULT_N_BATCHES{100};
 constexpr const char* DEFAULT_MODEL{"mlp"};
 
-}  // anonymous namespace
-
-
 std::pair<uint32_t, uint32_t> parse_range_or_die(const std::string& range_str) {
   auto range = unet::parse_range(range_str);
   if (!range) {
-    cerr << "Error: " << range_str
-         << " could not be parsed as a range (START:END)\n";
+    std::cerr << "Error: " << range_str
+              << " could not be parsed as a range (START:END)\n";
     exit(1);
   }
   return *range;
 }
+
+struct ModelInfo {
+  std::string type;
+  std::string description;
+};
+
+}  // anonymous namespace
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
   google::InitGoogleLogging(argv[0]);
   google::LogToStderr();
 
-  string model;
-  string train_file;
-  string input_range_str, target_range_str;
+  std::string model, model_in_path, model_out_path;
+  std::string train_file;
+  std::string input_range_str, target_range_str;
   bool softmax{false};
   uint32_t target_category{0}, n_categories{0};
   uint32_t batch_size{0}, n_batches{0};
   uint32_t n_input{0}, n_hidden{0}, n_output{0};
 
-  stringstream desc_stream;
+  std::stringstream desc_stream;
   desc_stream
     << "μnet - deep neural networks trained with SGD or Hessian free optimisation "
     << "(version " << VERSION << ")";
   po::options_description description{desc_stream.str()};
   description.add_options()
     ("help,h", "Prints this help message.")
-    (ARG_MODEL, po::value<string>(&model)
+    (ARG_MODEL, po::value<std::string>(&model)
      ->value_name("MODEL")->default_value(DEFAULT_MODEL),
-     "What model to use: mlp")
+     "What type of model to use. Supported: mlp")
     (ARG_MLP_N_HIDDEN, po::value<uint32_t>(&n_hidden)
      ->value_name("NUM"), "For MLPs | Number of hidden units.")
-    (ARG_TRAIN, po::value<string>(&train_file)
+    (ARG_LOAD, po::value<std::string>(&model_in_path)
+     ->value_name("FILE"), "Load a model of the specified type.")
+    (ARG_SAVE, po::value<std::string>(&model_out_path)
+     ->value_name("FILE"), "Save the model to file.")
+    (ARG_LOAD_JSON, po::value<std::string>(&model_in_path)
+     ->value_name("FILE"), "Load a model of the specified type from json.")
+    (ARG_SAVE_JSON, po::value<std::string>(&model_out_path)
+     ->value_name("FILE"), "Save the model to file as json.")
+    (ARG_TRAIN, po::value<std::string>(&train_file)
      ->value_name("FILE"), "Specify a training file.")
-    (ARG_INPUT_RANGE, po::value<string>(&input_range_str)
+    (ARG_INPUT_RANGE, po::value<std::string>(&input_range_str)
      ->value_name("START:END"),
      "Which elements of the data vectors to use as input to the network. "
      "Specified as a 0-indexed range START:END.")
-    (ARG_TARGET_RANGE, po::value<string>(&target_range_str)
+    (ARG_TARGET_RANGE, po::value<std::string>(&target_range_str)
      ->value_name("START:END"),
      "[Regression] Which elements of the data vectors to use as target.")
     (ARG_TARGET_CATEGORY, po::value<uint32_t>(&target_category)
@@ -89,7 +103,7 @@ int main(int argc, char **argv) {
      "[Classification] Interpret the target element as a categorical variable "
       "(i.e. an integer counting from 0).")
     (ARG_N_CATEGORIES, po::value<uint32_t>(&n_categories)
-     ->value_name("NUM"), (string {"[Classification] Use with --"} +
+     ->value_name("NUM"), (std::string {"[Classification] Use with --"} +
      ARG_TARGET_CATEGORY + "; How many categories there are in total.").c_str())
     (ARG_BATCH_SIZE, po::value<uint32_t>(&batch_size)
      ->value_name("NUM")->default_value(DEFAULT_BATCH_SIZE), "Mini batch size.")
@@ -102,29 +116,29 @@ int main(int argc, char **argv) {
     po::store(po::parse_command_line(argc, argv, description), variables);
     po::notify(variables);
     if (variables.count("help")) {
-      cerr << description << endl;
+      std::cerr << description << "\n";
       return 0;
     }
-    cerr << "Eigen is using " << Eigen::nbThreads() << " threads." << "\n";
+    std::cerr << "Eigen is using " << Eigen::nbThreads() << " threads." << "\n";
 #ifdef EIGEN_USE_MKL_ALL
-    cerr << "MKL is enabled." << "\n";
+    std::cerr << "MKL is enabled." << "\n";
 #else
-    cerr << "MKL is disabled." << "\n";
+    std::cerr << "MKL is disabled." << "\n";
 #endif
 
-    istream* train_in{nullptr};
-    ifstream train_file_in;
+    std::istream* train_in{nullptr};
+    std::ifstream train_file_in;
     if (variables.count(ARG_TRAIN)) {
-      cerr << "Training set: reading from file " << train_file << "\n";
-      train_file_in.open(train_file, ios::in);
+      std::cerr << "Training set: reading from file " << train_file << "\n";
+      train_file_in.open(train_file, std::ios::in);
       if (!train_file_in.is_open()) {
-        cerr << "Error: unable to open the training file.\n";
+        std::cerr << "Error: unable to open the training file.\n";
         exit(1);
       }
       train_in = &train_file_in;
     } else {
-      cerr << "Training set: reading from stdin (no file was specified).\n";
-      train_in = &cin;
+      std::cerr << "Training set: reading from stdin (no file was specified).\n";
+      train_in = &std::cin;
     }
     CHECK(train_in != nullptr);
 
@@ -135,8 +149,8 @@ int main(int argc, char **argv) {
     std::function<unet::Batch()> read_batch;
     if (variables.count(ARG_TARGET_RANGE)) {
       if (variables.count(ARG_TARGET_CATEGORY)) {
-        cerr << "Error: only one of --" << ARG_TARGET_RANGE << " or --"
-             << ARG_TARGET_CATEGORY << " may be used.\n";
+        std::cerr << "Error: only one of --" << ARG_TARGET_RANGE << " or --"
+                  << ARG_TARGET_CATEGORY << " may be used.\n";
         exit(1);
       }
       auto target_range = parse_range_or_die(target_range_str);
@@ -148,9 +162,10 @@ int main(int argc, char **argv) {
       };
     } else if (variables.count(ARG_TARGET_CATEGORY)) {
       if (!variables.count(ARG_N_CATEGORIES)) {
-        cerr << "Error: the total number of categories needs to be specified "
-             << "if a one hot encoder is used (--" << ARG_TARGET_CATEGORY
-             << ")\nUse --" << ARG_N_CATEGORIES << " NUM\n";
+        std::cerr << "Error: the total number of categories needs to be "
+                  << "specified  if a one hot encoder is used (--"
+                  << ARG_TARGET_CATEGORY << ")\nUse --"
+                  << ARG_N_CATEGORIES << " NUM\n";
         exit(1);
       }
       n_output = n_categories;
@@ -161,26 +176,48 @@ int main(int argc, char **argv) {
           *train_in, batch_size, input_transform, one_hot_encoder);
       };
     } else {
-      cerr << "Error: a target needs to be specified using --"
-           << ARG_TARGET_RANGE << " or --" << ARG_TARGET_CATEGORY << "\n";
+      std::cerr << "Error: a target needs to be specified using --"
+                << ARG_TARGET_RANGE << " or --" << ARG_TARGET_CATEGORY << "\n";
       exit(1);
     }
 
-    if (!variables.count(ARG_MLP_N_HIDDEN)) {
-      cerr << "Error: the number of units in the hidden layer needs to be defined.\n"
-           << "Use --" << ARG_MLP_N_HIDDEN << " NUMBER\n";
-      exit(1);
+    unet::MLP mlp;
+    if (variables.count(ARG_LOAD) || variables.count(ARG_LOAD_JSON)) {
+      LOG(INFO) << "Loading a model of type " << model << " from file "
+                << model_in_path;
+      std::fstream model_in{model_in_path, std::ios::in | std::ios::binary};
+      if (!model_in.is_open()) {
+        LOG(ERROR) << "Could not open file to read model. ";
+        exit(2);
+      }
+      if (variables.count(ARG_LOAD)) {
+        unet::load_from_binary(model_in, mlp);
+      } else {
+        unet::load_from_json(model_in, mlp);
+      }
+    } else {
+      if (!variables.count(ARG_MLP_N_HIDDEN)) {
+        std::cerr << "Error: the number of units in the hidden layer needs to be"
+                  << " defined.\nUse --" << ARG_MLP_N_HIDDEN << " NUMBER\n";
+        exit(1);
+      }
+      mlp = unet::MLP{n_input, n_hidden, n_output, softmax};
+    }
+    if (n_input != mlp.n_input()) {
+      LOG(ERROR) << "The network has " << mlp.n_input() << " inputs != "
+                 << n_input << " required.";
+      exit(3);
+    } else if (n_output != mlp.n_output()) {
+      LOG(ERROR) << "The network has " << mlp.n_output() << " outputs != "
+                 << n_output << " required.";
+      exit(3);
     }
 
-    // cerr << "batch_X=\n"<< batch.input << endl;
-    // cerr << "batch_Y=\n"<< batch.target << endl;
     LOG(INFO) << "Training a MLP with arch = " << n_input << " -> "
-              << n_hidden << " -> " << n_output
+              << mlp.n_hidden() << " -> " << n_output
               << " (output = " << (softmax ? "softmax" : "linear")
               << ")";
-    unet::MLP mlp{n_input, n_hidden, n_output, softmax};
-    unet::NesterovGD minimize{0.005, 1.001, 0.8, 0.7, 0.9999, 3};
-
+    unet::NesterovGD minimize{0.01, 1.00, 0.8, 0.7, 0.9995, 3};
 
     for (uint32_t n_batch = 0; n_batch < n_batches; ++n_batch) {
       LOG(INFO) << "Starting mini batch number " << n_batch;
@@ -194,8 +231,22 @@ int main(int argc, char **argv) {
         minimize.fit_batch(l2_error);
       }
     }
-  } catch (const boost::program_options::error& e) {
-    cerr << e.what() << "\n";
+
+    if (variables.count(ARG_SAVE) || variables.count(ARG_SAVE_JSON)) {
+      LOG(INFO) << "Saving the model to file " << model_out_path;
+      std::fstream model_out{model_out_path, std::ios::out | std::ios::binary};
+      if (!model_out.is_open()) {
+        LOG(ERROR) << "Could not open file for writing. ";
+        exit(2);
+      }
+      if (variables.count(ARG_SAVE)) {
+        unet::save_to_binary(model_out, mlp);
+      } else {
+        unet::save_to_json(model_out, mlp);
+      }
+    }
+  } catch (const po::error& e) {
+    std::cerr << e.what() << "\n";
     exit(1);
   } catch(const std::exception& e) {
     LOG(ERROR) << e.what();

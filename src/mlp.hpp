@@ -7,6 +7,7 @@
 #include "stan/agrad/rev/functions/tanh.hpp"
 #include "stan/agrad/rev/functions/exp.hpp"
 
+#include <cereal/cereal.hpp>
 #include <Eigen/Dense>
 #include <Eigen/QR>
 #include <Eigen/src/Core/NumTraits.h>
@@ -38,6 +39,8 @@ private:
   template<typename T> struct WeightsView;
 
 public:
+  MLP() = default;
+
   MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
       bool softmax, int32_t seed=0)
     : MLP(n_input, n_hidden, n_output, softmax,
@@ -48,6 +51,11 @@ public:
 
   inline uint32_t num_params() const;
 
+  uint32_t n_input() const { return n_input_; }
+  uint32_t n_hidden() const { return n_hidden_; }
+  uint32_t n_output() const { return n_output_; }
+  uint32_t softmax() const { return softmax_; }
+
   Eigen::VectorXd& weights() { return weights_; }
   const Eigen::VectorXd& weights() const { return weights_; }
 
@@ -56,10 +64,12 @@ public:
 
   template<typename T>
   inline DynamicMatrix<T> operator()(const DynamicMatrix<T>& X) const;
-
   template<typename T>
   inline DynamicMatrix<T> operator()(const DynamicVector<T>& weights,
                                      const DynamicMatrix<T>& X) const;
+
+  template<class Archive>
+  inline void serialize(Archive& archive);
 
   static inline uint32_t num_params(
     uint32_t n_input, uint32_t n_hidden, uint32_t n_output) {
@@ -70,9 +80,6 @@ public:
   static inline DynamicMatrix<T> function(
     uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
     const DynamicVector<T>& weights, const DynamicMatrix<T>& X);
-
-  const uint32_t n_input, n_hidden, n_output;
-  const bool softmax;
 
 private:
   template<typename T>
@@ -95,12 +102,14 @@ private:
     Eigen::Map<const DynamicVector<T>> Vb;  // output bias
   };
 
+  uint32_t n_input_, n_hidden_, n_output_;
+  bool softmax_;
   Eigen::VectorXd weights_;
 };
 
 MLP::MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
          std::function<double()> generate_weight)
-  : n_input{n_input}, n_hidden{n_hidden}, n_output{n_output}, softmax{softmax} {
+  : n_input_{n_input}, n_hidden_{n_hidden}, n_output_{n_output}, softmax_{softmax} {
     CHECK(n_input > 0 && n_hidden > 0 && n_output > 0);
     CHECK(n_output > 1 || !softmax)
       << "There needs to be more than 1 output unit for softmax to make sense.";
@@ -111,23 +120,32 @@ MLP::MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
 }
 
 uint32_t MLP::num_params() const {
-  return MLP::num_params(n_input, n_hidden, n_output);
+  return MLP::num_params(n_input_, n_hidden_, n_output_);
 }
 
 MLP::WeightsView<double> MLP::structured_weights() const {
-  return MLP::extract_weights(weights_, n_input, n_hidden, n_output);
+  return MLP::extract_weights(weights_, n_input_, n_hidden_, n_output_);
 }
 
 template<typename T>
 DynamicMatrix<T> MLP::operator()(const DynamicMatrix<T>& X) const {
-  return MLP::function(n_input, n_hidden, n_output, softmax, weights_, X);
+  return MLP::function(n_input_, n_hidden_, n_output_, softmax_, weights_, X);
 }
 
 template<typename T>
 DynamicMatrix<T> MLP::operator()(
   const DynamicVector<T>& weights, const DynamicMatrix<T>& X) const {
   CHECK_EQ(num_params(), weights.size());
-  return MLP::function(n_input, n_hidden, n_output, softmax, weights, X);
+  return MLP::function(n_input_, n_hidden_, n_output_, softmax_, weights, X);
+}
+
+template<class Archive>
+void MLP::serialize(Archive& archive) {
+  archive(cereal::make_nvp("n_input", n_input_),
+          cereal::make_nvp("n_hidden", n_hidden_),
+          cereal::make_nvp("n_output", n_output_),
+          cereal::make_nvp("softmax", softmax_),
+          cereal::make_nvp("weights", weights_));
 }
 
 template<typename T>

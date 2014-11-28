@@ -18,6 +18,7 @@ add_executable(
     test_utilities.cpp
     test_objectives.cpp
     test_mlp.cpp
+    test_serialize.cpp
     ${source_dir}
 )
 target_link_libraries(
