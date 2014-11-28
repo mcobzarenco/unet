@@ -34,11 +34,14 @@ inline stan::agrad::var sigmoid(const stan::agrad::var& x) {
 }
 
 struct MLP {
+private:
+  template<typename T> struct WeightsView;
+
 public:
   MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
       bool softmax, int32_t seed=0)
     : MLP(n_input, n_hidden, n_output, softmax,
-          normal_weight_generator(0, .001, seed)) {}
+          normal_weight_generator(0, .01, seed)) {}
 
   inline MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output,
              bool softmax, std::function<double()> generate_weight);
@@ -48,21 +51,49 @@ public:
   Eigen::VectorXd& weights() { return weights_; }
   const Eigen::VectorXd& weights() const { return weights_; }
 
+  // inline WeightsView formatted_weights();
+  inline WeightsView<double> structured_weights() const;
+
   template<typename T>
   inline DynamicMatrix<T> operator()(const DynamicMatrix<T>& X) const;
 
   template<typename T>
-  inline DynamicMatrix<T> operator() (const DynamicVector<T>& weights,
-                                      const DynamicMatrix<T>& X) const;
+  inline DynamicMatrix<T> operator()(const DynamicVector<T>& weights,
+                                     const DynamicMatrix<T>& X) const;
+
+  static inline uint32_t num_params(
+    uint32_t n_input, uint32_t n_hidden, uint32_t n_output) {
+    return n_hidden * (n_input + 1) + n_output * (n_hidden + 1);
+  }
+
+  template <typename T>
+  static inline DynamicMatrix<T> function(
+    uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
+    const DynamicVector<T>& weights, const DynamicMatrix<T>& X);
 
   const uint32_t n_input, n_hidden, n_output;
   const bool softmax;
 
 private:
-  template <typename T>
-  static inline DynamicMatrix<T> function(
-    uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
-    const DynamicVector<T>& weights, const DynamicMatrix<T>& X);
+  template<typename T>
+  static inline WeightsView<T> extract_weights(
+    const DynamicVector<T>& weights, const uint32_t n_input,
+    const uint32_t n_hidden, const uint32_t n_output);
+
+  template<typename T>
+  struct WeightsView {
+    WeightsView(const T* H_start,  uint32_t H_cols, uint32_t H_rows,
+                const T* Hb_start, uint32_t Hb_size,
+                const T* V_start,  uint32_t V_cols, uint32_t V_rows,
+                const T* Vb_start, uint32_t Vb_size) :
+      H{H_start, H_cols, H_rows}, Hb{Hb_start, Hb_size},
+      V{V_start, V_cols, V_rows}, Vb{Vb_start, Vb_size} {}
+
+    Eigen::Map<const DynamicMatrix<T>> H;   // hidden weight matrix
+    Eigen::Map<const DynamicVector<T>> Hb;  // hidden bias
+    Eigen::Map<const DynamicMatrix<T>> V;   // output weight matrix
+    Eigen::Map<const DynamicVector<T>> Vb;  // output bias
+  };
 
   Eigen::VectorXd weights_;
 };
@@ -80,7 +111,11 @@ MLP::MLP(uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
 }
 
 uint32_t MLP::num_params() const {
-  return n_hidden * (n_input + 1) + n_output * (n_hidden + 1);
+  return MLP::num_params(n_input, n_hidden, n_output);
+}
+
+MLP::WeightsView<double> MLP::structured_weights() const {
+  return MLP::extract_weights(weights_, n_input, n_hidden, n_output);
 }
 
 template<typename T>
@@ -95,6 +130,24 @@ DynamicMatrix<T> MLP::operator()(
   return MLP::function(n_input, n_hidden, n_output, softmax, weights, X);
 }
 
+template<typename T>
+MLP::WeightsView<T> MLP::extract_weights(
+  const DynamicVector<T>& weights, const uint32_t n_input,
+  const uint32_t n_hidden, const uint32_t n_output) {
+  using Matrix = DynamicMatrix<T>;
+  using Vector = DynamicVector<T>;
+  CHECK_EQ(weights.size(), MLP::num_params(n_input, n_hidden, n_output));
+
+  const T* H_start{weights.data()};
+  const T* Hb_start{H_start + n_hidden * n_input};
+  const T* V_start{Hb_start + n_hidden};
+  const T* Vb_start{V_start + n_hidden * n_output};
+
+  return MLP::WeightsView<T>{
+    H_start, n_hidden, n_input, Hb_start, n_hidden,
+    V_start, n_output, n_hidden, Vb_start, n_output};
+}
+
 template <typename T>
 DynamicMatrix<T> MLP::function(
   uint32_t n_input, uint32_t n_hidden, uint32_t n_output, bool softmax,
@@ -103,14 +156,9 @@ DynamicMatrix<T> MLP::function(
   using Vector = DynamicVector<T>;
   CHECK_EQ(n_input, X.rows());
 
-  const T* H_start{weights.data()};
-  const T* Hb_start{H_start + n_hidden * n_input};
-  const T* V_start{Hb_start + n_hidden};
-  const T* Vb_start{V_start + n_hidden * n_output};
-  Eigen::Map<const Matrix> H{H_start, n_hidden, n_input};
-  Eigen::Map<const Vector> Hb{Hb_start, n_hidden};
-  Eigen::Map<const Matrix> V{V_start, n_output, n_hidden};
-  Eigen::Map<const Vector> Vb{Vb_start, n_output};
+  auto W = MLP::extract_weights(weights, n_input, n_hidden, n_output);
+  const Matrix& H{W.H}, V{W.V};
+  const Vector& Hb{W.Hb}, Vb{W.Vb};
 
   Matrix H_out{H * X};
   H_out.colwise() += Hb;

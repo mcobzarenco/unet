@@ -17,6 +17,7 @@ add_executable(
     test_all.cpp
     test_utilities.cpp
     test_objectives.cpp
+    test_mlp.cpp
     ${source_dir}
 )
 target_link_libraries(
