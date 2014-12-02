@@ -4,6 +4,8 @@
 #include <random>
 
 
+namespace unet {
+
 inline std::function<double()> normal_weight_generator(
   double mean, double stddev, int32_t seed) {
   if (seed == 0) {
@@ -15,3 +17,5 @@ inline std::function<double()> normal_weight_generator(
 
   return [generator, normal] () mutable { return normal(generator); };
 }
+
+}  // namespace unet
