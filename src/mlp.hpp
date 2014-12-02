@@ -89,12 +89,12 @@ private:
 
   template<typename T>
   struct WeightsView {
-    WeightsView(const T* H_start,  uint32_t H_cols, uint32_t H_rows,
+    WeightsView(const T* H_start,  uint32_t H_rows, uint32_t H_cols,
                 const T* Hb_start, uint32_t Hb_size,
-                const T* V_start,  uint32_t V_cols, uint32_t V_rows,
+                const T* V_start,  uint32_t V_rows, uint32_t V_cols,
                 const T* Vb_start, uint32_t Vb_size) :
-      H{H_start, H_cols, H_rows}, Hb{Hb_start, Hb_size},
-      V{V_start, V_cols, V_rows}, Vb{Vb_start, Vb_size} {}
+      H{H_start, H_rows, H_cols}, Hb{Hb_start, Hb_size},
+      V{V_start, V_rows, V_cols}, Vb{Vb_start, Vb_size} {}
 
     Eigen::Map<const DynamicMatrix<T>> H;   // hidden weight matrix
     Eigen::Map<const DynamicVector<T>> Hb;  // hidden bias
