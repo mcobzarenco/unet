@@ -5,6 +5,7 @@
 #include <cereal/cereal.hpp>
 #include <cereal/archives/binary.hpp>
 #include <cereal/archives/json.hpp>
+#include <cereal/types/vector.hpp>
 #include <Eigen/Dense>
 
 
@@ -65,7 +66,7 @@ load(Archive & archive, unet::DynamicVector<Scalar>& vec) {
 
 namespace unet {
 
-// Helpers for serializing object:
+// Helpers for serializing objects to streams:
 
 template<typename Archive, typename Net>
 inline void save_net(std::ostream& out, const Net& net) {

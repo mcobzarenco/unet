@@ -30,7 +30,7 @@ VectorXd finite_diff(F f, const VectorXd& x) {
 }
 
 TEST(FeedForward, StructuredWeights) {
-  unet::FeedForward<3> net{{2, 2, 1}, false};
+  unet::FeedForward net{{2, 2, 1}, false};
   VectorXd w{9};
   w << 1, 2, 3, 4, 5, 6, 7, 8, 9;
   net.weights() = w;
@@ -65,29 +65,27 @@ TEST(FeedForward, StructuredWeights) {
     << "actual:\n" << params.b[1];
 }
 
-TEST(FeedForward, CheckGradient) {
+TEST(FeedForward, CheckGradientForLinearOutput) {
   MatrixXd X, Y;
   double error_user{-1}, error_auto{-1};
   VectorXd grad_user, grad_auto;
   VectorXd discrep;
 
-  for (uint32_t n_input = 50; n_input < 100; n_input += 23) {
-    for (uint32_t n_output = 20; n_output < 100; n_output += 31) {
-      for (uint32_t iter = 0; iter < 5; ++iter) {
-        unet::FeedForward<5> net{{n_input, 40, 50, 20, n_output}, false, 1};
-        X = MatrixXd::Random(n_input, 100);
-        Y = MatrixXd::Random(n_output, 100);
+  for (uint32_t n_input = 50; n_input < 300; n_input += 23) {
+    for (uint32_t n_output = 20; n_output < 300; n_output += 31) {
+      unet::FeedForward net{{n_input, 40, 50, 20, n_output}, false, 1};
+      X = MatrixXd::Random(n_input, 100);
+      Y = MatrixXd::Random(n_output, 100);
 
-        net.l2_error(X, Y, error_user, grad_user);
-        unet::L2Error<unet::FeedForward<5>> l2_error{net, X, Y};
-        stan::agrad::gradient(l2_error, l2_error.weights(), error_auto, grad_auto);
-        ASSERT_EQ(grad_user.size(), grad_auto.size());
-        ASSERT_LT((error_user - error_auto) *(error_user - error_auto), 1e-20);
+      net.l2_error(X, Y, error_user, grad_user);
+      unet::L2Error<unet::FeedForward> l2_error{net, X, Y};
+      stan::agrad::gradient(l2_error, l2_error.weights(), error_auto, grad_auto);
+      ASSERT_EQ(grad_user.size(), grad_auto.size());
+      ASSERT_LT((error_user - error_auto) *(error_user - error_auto), 1e-20);
 
-        discrep = grad_auto - grad_user;
-        // cout << "[l2] discrep =\n" << discrep.transpose() * discrep << endl;
-        EXPECT_LT(discrep.transpose() * discrep, 1e-20);
-      }
+      discrep = grad_auto - grad_user;
+      // cout << "[l2] discrep =\n" << discrep.transpose() * discrep << endl;
+      EXPECT_LT(discrep.transpose() * discrep, 1e-20);
     }
   }
 }

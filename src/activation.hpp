@@ -21,11 +21,6 @@ inline double sigmoid(double x) {
   return tanh(x);
 }
 
-inline void sigmoid_in_place(Eigen::MatrixXd& x) {
-  std::transform(x.data(), x.data() + x.size(), x.data(),
-                 [] (const double x) {return sigmoid(x);});
-}
-
 inline double dsigmoid(double x) {
   // return 1.0 / (1.0 + std::exp(-2.0 * x));
   double t{tanh(x)};
@@ -37,6 +32,12 @@ inline stan::agrad::var sigmoid(const stan::agrad::var& x) {
   // return 1.0 / (1.0 + stan::agrad::exp(-2.0 * x));
   // return stan::agrad::inv_logit(x);
   // return 1.0 + stan::agrad::tanh(x / 2.0);
+}
+
+template<typename Scalar>
+inline void sigmoid_in_place(DynamicMatrix<Scalar>& x) {
+  std::transform(x.data(), x.data() + x.size(), x.data(),
+                 [] (const Scalar& x) {return sigmoid(x);});
 }
 
 template<typename Scalar>
