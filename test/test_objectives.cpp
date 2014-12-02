@@ -1,3 +1,4 @@
+#include "activation.hpp"
 #include "objectives.hpp"
 #include "utilities.hpp"
 #include "typedefs.hpp"

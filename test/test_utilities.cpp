@@ -170,11 +170,3 @@ TEST(Utilities, OneHotEncoder) {
   vec5 << 0, 0, 3.3, -12;
   EXPECT_DEATH({ encoder(vec5); }, "");
 }
-
-TEST(Utilities, Softmax) {
-  Eigen::MatrixXd mat = Eigen::MatrixXd::Random(5, 10);
-  unet::softmax_in_place(mat);
-
-  EXPECT_TRUE((mat.array() > 0).all());
-  EXPECT_TRUE((mat.colwise().sum().array() - 1.0 < 1e-10).all());
-}

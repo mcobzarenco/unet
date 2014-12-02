@@ -1,5 +1,6 @@
 #pragma once
 
+#include "activation.hpp"
 #include "init.hpp"
 #include "typedefs.hpp"
 #include "utilities.hpp"
@@ -19,20 +20,6 @@
 
 
 namespace unet {
-
-using std::exp;
-using stan::agrad::exp;
-
-inline double sigmoid(double x) {
-  return 1.0 / (1.0 + std::exp(-2.0 * x));
-  // return 1.0 + std::tanh(x / 2.0);
-}
-
-inline stan::agrad::var sigmoid(const stan::agrad::var& x) {
-  return 1.0 / (1.0 + stan::agrad::exp(-2.0 * x));
-  // return stan::agrad::inv_logit(x);
-  // return 1.0 + stan::agrad::tanh(x / 2.0);
-}
 
 struct MLP {
 private:
