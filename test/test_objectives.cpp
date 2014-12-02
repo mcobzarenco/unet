@@ -110,7 +110,7 @@ TEST(Objectives, CrossEntropy) {
     fixed_out.output_ = Eigen::MatrixXd::Random(3, 2);
     unet::softmax_in_place(fixed_out.output_);
     stan::agrad::gradient(objective0, fixed_out.weights_, error, grad);
-    ASSERT_TRUE(isfinite(error)) << "Error = " << error;
+    ASSERT_TRUE(std::isfinite(error)) << "Error = " << error;
     ASSERT_LT(y_entropy, error);
     ASSERT_EQ(0, grad.transpose() * grad);
   }
