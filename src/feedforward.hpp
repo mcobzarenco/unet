@@ -22,48 +22,26 @@ namespace unet {
 struct FeedForward {
 private:
   using Layers = std::vector<uint32_t>;
-  template<typename Scalar, bool Mutable> struct WeightsView {};
+  template<typename Scalar> struct ImmutableParams;
+  template<typename Scalar> struct MutableParams;
 
 public:
   FeedForward() = default;
 
-  FeedForward(std::initializer_list<uint32_t> layers, bool softmax,
-              int32_t seed=0)
+  FeedForward(const std::initializer_list<uint32_t>& layers, const bool softmax,
+              const int32_t seed=0)
     : FeedForward{layers, softmax, normal_weight_generator(0, .1, seed)} {}
 
-  FeedForward(std::initializer_list<uint32_t> layers, bool softmax,
-              std::function<double()> generate_weight) : softmax_{softmax} {
-    CHECK_GT(layers.size(), 2)
-      << layers.size() << " layers specified, at least 3 are required.";
-    layers_.resize(layers.size());
-    uint32_t index{0};
-    for (const auto& n:layers) { layers_[index++] = n; }
-
-    weights_.resize(num_params());
-    auto params = FeedForward::weights_view(layers, weights_);
-    for (uint32_t layer = 0; layer < params.W.size() ; ++layer) {
-      auto& W = params.W[layer];
-      std::transform(W.data(), W.data() + W.size(), W.data(),
-                     [&] (const double&) {
-                       if (layer == 0 || layer >= params.W.size() - 2 ||
-                           generate_weight() < -0.15)
-                         return generate_weight();
-                       else
-                         return 0.0;
-                     } );
-      params.b[layer] = Eigen::VectorXd::Zero(params.b[layer].size());
-    }
-  }
+  inline FeedForward(const std::initializer_list<uint32_t>& layers, const bool softmax,
+                     std::function<double()> generate_weight);
 
   uint32_t num_params() const { return FeedForward::num_params(layers_); };
 
   Eigen::VectorXd& weights() { return weights_; }
   const Eigen::VectorXd& weights() const { return weights_; }
 
-  // inline WeightsView formatted_weights();
-  inline WeightsView<double, false> structured_weights() const {
-    return weights_view<double>(layers_, weights_);
-  }
+  inline MutableParams<double> weights_as_params();
+  inline ImmutableParams<double> weights_as_params() const;
 
   template<typename T>
   inline DynamicMatrix<T> operator()(const DynamicMatrix<T>& X) const;
@@ -91,55 +69,87 @@ public:
 
 private:
   template<typename Scalar>
-  struct WeightsView<Scalar, false> {
+  struct ImmutableParams {
     std::vector<Eigen::Map<const DynamicMatrix<Scalar>>> W;
     std::vector<Eigen::Map<const DynamicVector<Scalar>>> b;
   };
 
   template<typename Scalar>
-  struct WeightsView<Scalar, true> {
+  struct MutableParams {
     std::vector<Eigen::Map<DynamicMatrix<Scalar>>> W;
     std::vector<Eigen::Map<DynamicVector<Scalar>>> b;
   };
 
+  template<typename ScalarPtr, typename Params>
+  static Params map_weights_as_params(
+    const Layers& layers, Params& params, ScalarPtr head) {
+    for (uint32_t layer = 0; layer < layers.size() - 1; ++layer) {
+      params.W.emplace_back(head, layers[layer + 1], layers[layer]);
+      head += layers[layer + 1] * layers[layer];
+
+      params.b.emplace_back(head, layers[layer + 1]);
+      head += layers[layer + 1];
+    };
+    return params;
+  }
+
   template<typename Scalar>
-  static WeightsView<Scalar, false> weights_view(
+  static ImmutableParams<Scalar> weights_as_params(
     const Layers& layers, const DynamicVector<Scalar>& weights) {
     CHECK_EQ(weights.size(), FeedForward::num_params(layers));
-
-    WeightsView<Scalar, false> view;
-    const Scalar* head{weights.data()};
-    for (uint32_t layer = 0; layer < layers.size() - 1; ++layer) {
-      view.W.emplace_back(head, layers[layer + 1], layers[layer]);
-      head += layers[layer + 1] * layers[layer];
-
-      view.b.emplace_back(head, layers[layer + 1]);
-      head += layers[layer + 1];
-    };
-    return view;
+    ImmutableParams<Scalar> params;
+    map_weights_as_params(layers, params, weights.data());
+    return params;
   }
 
   template<typename Scalar>
-  static WeightsView<Scalar, true> weights_view(
+  static MutableParams<Scalar> weights_as_params(
     const Layers& layers, DynamicVector<Scalar>& weights) {
     CHECK_EQ(weights.size(), FeedForward::num_params(layers));
-
-    WeightsView<Scalar, true> view;
-    Scalar* head{weights.data()};
-    for (uint32_t layer = 0; layer < layers.size() - 1; ++layer) {
-      view.W.emplace_back(head, layers[layer + 1], layers[layer]);
-      head += layers[layer + 1] * layers[layer];
-
-      view.b.emplace_back(head, layers[layer + 1]);
-      head += layers[layer + 1];
-    };
-    return view;
+    MutableParams<Scalar> params;
+    map_weights_as_params(layers, params, weights.data());
+    return params;
   }
+
+  // Feedforward state:
 
   bool softmax_;
   std::vector<uint32_t> layers_;
   Eigen::VectorXd weights_;
 };
+
+FeedForward::FeedForward(
+  const std::initializer_list<uint32_t>& layers, const bool softmax,
+  std::function<double()> generate_weight) : softmax_{softmax} {
+  CHECK_GT(layers.size(), 2)
+    << layers.size() << " layers specified, at least 3 are required.";
+  layers_.resize(layers.size());
+  uint32_t index{0};
+  for (const auto& n:layers) { layers_[index++] = n; }
+
+  weights_.resize(num_params());
+  auto params = FeedForward::weights_as_params(layers, weights_);
+  for (uint32_t layer = 0; layer < params.W.size() ; ++layer) {
+    auto& W = params.W[layer];
+    std::transform(W.data(), W.data() + W.size(), W.data(),
+                   [&] (const double&) {
+                     // if (layer == 0 || layer >= params.W.size() - 2 ||
+                     //     generate_weight() < -0.15)
+                     return generate_weight();
+                     // else
+                     //   return 0.0;
+                   } );
+    params.b[layer] = Eigen::VectorXd::Zero(params.b[layer].size());
+  }
+}
+
+FeedForward::MutableParams<double> FeedForward::weights_as_params() {
+  return FeedForward::weights_as_params(layers_, weights_);
+}
+
+FeedForward::ImmutableParams<double> FeedForward::weights_as_params() const {
+  return FeedForward::weights_as_params(layers_, weights_);
+}
 
 template<typename Scalar>
 DynamicMatrix<Scalar> FeedForward::operator()(
@@ -185,7 +195,7 @@ DynamicMatrix<Scalar> FeedForward::function(
   using Vector = DynamicVector<Scalar>;
   CHECK_EQ(layers[0], X.rows());
 
-  const auto view = FeedForward::weights_view(layers, weights);
+  const auto view = FeedForward::weights_as_params(layers, weights);
   Matrix out{X};
   uint32_t layer{0};
   for (layer = 0; layer < layers.size() - 2; ++layer) {
@@ -208,8 +218,8 @@ void FeedForward::l2_error(
   if (gradient.size() != weights.size()) {
     gradient.resize(weights.size());
   }
-  auto params = FeedForward::weights_view(layers, weights);
-  auto grad = FeedForward::weights_view(layers, gradient);
+  const auto params = FeedForward::weights_as_params(layers, weights);
+  auto grad = FeedForward::weights_as_params(layers, gradient);
 
   std::vector<Eigen::MatrixXd> outs;
   outs.resize(n_layers);
@@ -222,7 +232,8 @@ void FeedForward::l2_error(
   }
   outs[n_layers - 1] = (params.W[n_layers - 2] * outs[n_layers - 2]).colwise() +
     params.b[n_layers - 2];
-  const Eigen::MatrixXd& net_out{outs[n_layers - 1]};
+  Eigen::MatrixXd& net_out{outs[n_layers - 1]};
+  if (softmax) { softmax_in_place(net_out); }
 
   Eigen::MatrixXd S{2.0 * (net_out - Y) / net_out.size()};
   error = net_out.size() * (S.transpose() * S).trace() / 4.0;

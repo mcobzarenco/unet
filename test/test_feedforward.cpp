@@ -37,7 +37,7 @@ TEST(FeedForward, StructuredWeights) {
 
   EXPECT_DEATH({
       net.weights() = w.segment(0, 8);
-      net.structured_weights();
+      net.weights_as_params();
     }, "");
 
   MatrixXd exp_W0{2, 2}, exp_W1{1, 2};
@@ -48,7 +48,7 @@ TEST(FeedForward, StructuredWeights) {
   exp_W1 << 7, 8;
   exp_b1 << 9;
 
-  auto params = net.structured_weights();
+  auto params = net.weights_as_params();
   ASSERT_EQ(2, params.W.size());
   ASSERT_EQ(2, params.b.size());
   EXPECT_EQ(exp_W0, params.W[0])
