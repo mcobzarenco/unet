@@ -24,6 +24,8 @@ private:
   using Layers = std::vector<uint32_t>;
   template<typename Scalar> struct ImmutableParams;
   template<typename Scalar> struct MutableParams;
+  struct L2Error;
+  struct CrossEntropy;
 
 public:
   FeedForward() = default;
@@ -34,6 +36,10 @@ public:
 
   inline FeedForward(const std::initializer_list<uint32_t>& layers, const bool softmax,
                      std::function<double()> generate_weight);
+
+  const Layers& layers() const { return layers_; };
+  uint32_t n_input() const { return layers_[0]; };
+  uint32_t n_output() const { return layers_[layers_.size() - 1]; };
 
   uint32_t num_params() const { return FeedForward::num_params(layers_); };
 
@@ -49,8 +55,10 @@ public:
   inline DynamicMatrix<T> operator()(const DynamicVector<T>& weights,
                                      const DynamicMatrix<T>& X) const;
 
-  inline void l2_error(const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y,
-                       double& error, Eigen::VectorXd& grad);
+  inline L2Error l2_error(const Eigen::MatrixXd& X,
+                          const Eigen::MatrixXd& Y);
+  inline CrossEntropy cross_entropy(const Eigen::MatrixXd& X,
+                                    const Eigen::MatrixXd& Y);
 
   template<class Archive>
   inline void serialize(Archive& archive);
@@ -62,12 +70,10 @@ public:
     const Layers& layers, const bool softmax,
     const DynamicVector<Scalar>& weights, const DynamicMatrix<Scalar>& X);
 
-  static inline void l2_error(
-    const Layers& layers, const bool softmax,
-    const Eigen::VectorXd& weights, const Eigen::MatrixXd& X,
-    const Eigen::MatrixXd& Y, double& error, Eigen::VectorXd& gradient);
-
 private:
+
+  // Weights as parameters utilities:
+
   template<typename Scalar>
   struct ImmutableParams {
     std::vector<Eigen::Map<const DynamicMatrix<Scalar>>> W;
@@ -81,7 +87,7 @@ private:
   };
 
   template<typename ScalarPtr, typename Params>
-  static Params map_weights_as_params(
+  static inline Params map_weights_as_params(
     const Layers& layers, Params& params, ScalarPtr head) {
     for (uint32_t layer = 0; layer < layers.size() - 1; ++layer) {
       params.W.emplace_back(head, layers[layer + 1], layers[layer]);
@@ -94,7 +100,7 @@ private:
   }
 
   template<typename Scalar>
-  static ImmutableParams<Scalar> weights_as_params(
+  static inline ImmutableParams<Scalar> weights_as_params(
     const Layers& layers, const DynamicVector<Scalar>& weights) {
     CHECK_EQ(weights.size(), FeedForward::num_params(layers));
     ImmutableParams<Scalar> params;
@@ -103,7 +109,7 @@ private:
   }
 
   template<typename Scalar>
-  static MutableParams<Scalar> weights_as_params(
+  static inline MutableParams<Scalar> weights_as_params(
     const Layers& layers, DynamicVector<Scalar>& weights) {
     CHECK_EQ(weights.size(), FeedForward::num_params(layers));
     MutableParams<Scalar> params;
@@ -111,7 +117,52 @@ private:
     return params;
   }
 
-  // Feedforward state:
+  // Backpropagation and objective functions:
+
+  template<typename OutputGradient>
+  static inline void gradient(
+    const Layers& layers, const bool softmax,
+    const Eigen::VectorXd& weights, const Eigen::MatrixXd& X,
+    const Eigen::MatrixXd& Y, const OutputGradient& output_gradient,
+    double& error, Eigen::VectorXd& gradient);
+
+  struct L2Error {
+    L2Error(const FeedForward& net, const Eigen::MatrixXd& X,
+            const Eigen::MatrixXd& Y) : net_{net}, X_{X}, Y_{Y} {}
+
+    inline double operator()(const Eigen::VectorXd& weights) const;
+    inline void gradient(const Eigen::VectorXd& weights, double& error,
+                         Eigen::VectorXd& gradient) const;
+
+  private:
+    static inline void output_gradient(
+      const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
+      double& error, Eigen::MatrixXd& out_grad);
+
+    const FeedForward& net_;
+    const Eigen::MatrixXd& X_;
+    const Eigen::MatrixXd& Y_;
+  };
+
+  struct CrossEntropy {
+    CrossEntropy(const FeedForward& net, const Eigen::MatrixXd& X,
+                 const Eigen::MatrixXd& Y) : net_{net}, X_{X}, Y_{Y} {}
+
+    inline double operator()(const Eigen::VectorXd& weights) const;
+    inline void gradient(const Eigen::VectorXd& weights, double& error,
+                         Eigen::VectorXd& gradient) const;
+
+  private:
+    static inline void output_gradient(
+      const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
+      double& error, Eigen::MatrixXd& out_grad);
+
+    const FeedForward& net_;
+    const Eigen::MatrixXd& X_;
+    const Eigen::MatrixXd& Y_;
+  };
+
+  // Feedforward network state:
 
   bool softmax_;
   std::vector<uint32_t> layers_;
@@ -133,11 +184,11 @@ FeedForward::FeedForward(
     auto& W = params.W[layer];
     std::transform(W.data(), W.data() + W.size(), W.data(),
                    [&] (const double&) {
-                     // if (layer == 0 || layer >= params.W.size() - 2 ||
-                     //     generate_weight() < -0.15)
-                     return generate_weight();
-                     // else
-                     //   return 0.0;
+                     if (layer == 0 || layer == params.W.size() - 1 ||
+                         generate_weight() < -0.2)
+                       return generate_weight();
+                     else
+                       return 0.0;
                    } );
     params.b[layer] = Eigen::VectorXd::Zero(params.b[layer].size());
   }
@@ -164,10 +215,14 @@ DynamicMatrix<Scalar> FeedForward::operator()(
   return FeedForward::function(layers_, softmax_, weights, X);
 }
 
-void FeedForward::l2_error(
-  const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y,
-  double& error, Eigen::VectorXd& grad) {
-  return FeedForward::l2_error(layers_, softmax_, weights_, X, Y, error, grad);
+FeedForward::L2Error FeedForward::l2_error(
+  const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y) {
+  return L2Error(*this, X, Y);
+}
+
+FeedForward::CrossEntropy FeedForward::cross_entropy(
+  const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y) {
+  return CrossEntropy(*this, X, Y);
 }
 
 template<class Archive>
@@ -208,10 +263,12 @@ DynamicMatrix<Scalar> FeedForward::function(
   return out;
 }
 
-void FeedForward::l2_error(
+template<typename OutputGradient>
+void FeedForward::gradient(
   const Layers& layers, const bool softmax,
   const Eigen::VectorXd& weights, const Eigen::MatrixXd& X,
-  const Eigen::MatrixXd& Y, double& error, Eigen::VectorXd& gradient) {
+  const Eigen::MatrixXd& Y, const OutputGradient& output_gradient,
+  double& error, Eigen::VectorXd& gradient) {
   CHECK_EQ(layers[0], X.rows());
   const size_t n_layers{layers.size()};
 
@@ -232,11 +289,10 @@ void FeedForward::l2_error(
   }
   outs[n_layers - 1] = (params.W[n_layers - 2] * outs[n_layers - 2]).colwise() +
     params.b[n_layers - 2];
-  Eigen::MatrixXd& net_out{outs[n_layers - 1]};
-  if (softmax) { softmax_in_place(net_out); }
+  if (softmax) { softmax_in_place(outs[n_layers - 1]); }
 
-  Eigen::MatrixXd S{2.0 * (net_out - Y) / net_out.size()};
-  error = net_out.size() * (S.transpose() * S).trace() / 4.0;
+  Eigen::MatrixXd S;
+  output_gradient(outs[n_layers - 1], Y, error, S);
 
   grad.W[n_layers - 2] = S * outs[n_layers - 2].transpose();
   grad.b[n_layers - 2] = S.rowwise().sum();
@@ -248,8 +304,47 @@ void FeedForward::l2_error(
     grad.W[layer] = S * outs[layer].transpose();
     grad.b[layer] = S.rowwise().sum();
   }
+}
 
-  // if (softmax) { softmax_in_place(out); }
+double FeedForward::L2Error::operator()(const Eigen::VectorXd& weights) const {
+  Eigen::MatrixXd discrep{net_(weights, X_) - Y_};
+  return (discrep.transpose() * discrep).trace() / Y_.size();
+}
+
+void FeedForward::L2Error::gradient(
+  const Eigen::VectorXd& weights, double& error,
+  Eigen::VectorXd& gradient) const {
+  FeedForward::gradient(
+    net_.layers_, net_.softmax_, weights, X_, Y_,
+    FeedForward::L2Error::output_gradient, error, gradient);
+}
+
+void FeedForward::L2Error::output_gradient(
+  const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
+  double& error, Eigen::MatrixXd& out_grad) {
+  out_grad = 2.0 * (net_out - Y) / net_out.size();
+  error = net_out.size() * (out_grad.transpose() * out_grad).trace() / 4.0;
+}
+
+double FeedForward::CrossEntropy::operator()(
+  const Eigen::VectorXd& weights) const {
+  Eigen::MatrixXd cross_entropy{
+    -1.0 * net_(weights, X_).array().log() * Y_.array()};
+  return cross_entropy.sum() / cross_entropy.cols();
+}
+
+void FeedForward::CrossEntropy::gradient(
+  const Eigen::VectorXd& weights, double& error, Eigen::VectorXd& gradient) const {
+  FeedForward::gradient(
+    net_.layers_, net_.softmax_, weights, X_, Y_,
+    FeedForward::CrossEntropy::output_gradient, error, gradient);
+}
+
+void FeedForward::CrossEntropy::output_gradient(
+  const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
+  double& error, Eigen::MatrixXd& out_grad) {
+  out_grad = -(Y.array() - net_out.array()) / net_out.cols();
+  error = (-1.0 * Y.array() * net_out.array().log()).sum() / net_out.cols();
 }
 
 }  // unet namespace

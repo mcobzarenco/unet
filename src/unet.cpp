@@ -1,4 +1,5 @@
 #include "mlp.hpp"
+#include "feedforward.hpp"
 #include "minimize.hpp"
 #include "objectives.hpp"
 #include "utilities.hpp"
@@ -21,11 +22,12 @@ constexpr char VERSION[]{"0.0.2"};
 
 // Name of command line arguments:
 constexpr const char* ARG_MODEL{"model"};
+constexpr const char* ARG_MLP_N_HIDDEN{"n-hidden"};
 constexpr const char* ARG_LOAD{"load"};
 constexpr const char* ARG_SAVE{"save"};
 constexpr const char* ARG_LOAD_JSON{"load-json"};
 constexpr const char* ARG_SAVE_JSON{"save-json"};
-constexpr const char* ARG_MLP_N_HIDDEN{"n-hidden"};
+constexpr const char* ARG_EVAL{"eval"};
 constexpr const char* ARG_TRAIN{"train"};
 constexpr const char* ARG_INPUT_RANGE{"input"};
 constexpr const char* ARG_TARGET_RANGE{"target"};
@@ -89,6 +91,7 @@ int main(int argc, char **argv) {
      ->value_name("FILE"), "Load a model of the specified type from json.")
     (ARG_SAVE_JSON, po::value<std::string>(&model_out_path)
      ->value_name("FILE"), "Save the model to file as json.")
+    (ARG_EVAL, po::value<bool>(), "Save the model to file as json.")
     (ARG_TRAIN, po::value<std::string>(&train_file)
      ->value_name("FILE"), "Specify a training file.")
     (ARG_INPUT_RANGE, po::value<std::string>(&input_range_str)
@@ -181,7 +184,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    unet::MLP mlp;
+    unet::FeedForward net;
     if (variables.count(ARG_LOAD) || variables.count(ARG_LOAD_JSON)) {
       LOG(INFO) << "Loading a model of type " << model << " from file "
                 << model_in_path;
@@ -191,9 +194,9 @@ int main(int argc, char **argv) {
         exit(2);
       }
       if (variables.count(ARG_LOAD)) {
-        unet::load_from_binary(model_in, mlp);
+        unet::load_from_binary(model_in, net);
       } else {
-        unet::load_from_json(model_in, mlp);
+        unet::load_from_json(model_in, net);
       }
     } else {
       if (!variables.count(ARG_MLP_N_HIDDEN)) {
@@ -201,34 +204,67 @@ int main(int argc, char **argv) {
                   << " defined.\nUse --" << ARG_MLP_N_HIDDEN << " NUMBER\n";
         exit(1);
       }
-      mlp = unet::MLP{n_input, n_hidden, n_output, softmax};
+      net = unet::FeedForward{{n_input, 500, 300, 100, n_hidden, 10}, softmax};
+      // net = unet::FeedForward{{n_input, n_hidden, n_output}, softmax};
     }
-    if (n_input != mlp.n_input()) {
-      LOG(ERROR) << "The network has " << mlp.n_input() << " inputs != "
+    if (n_input != net.n_input()) {
+      LOG(ERROR) << "The network has " << net.n_input() << " inputs != "
                  << n_input << " required.";
       exit(3);
-    } else if (n_output != mlp.n_output()) {
-      LOG(ERROR) << "The network has " << mlp.n_output() << " outputs != "
+    } else if (n_output != net.n_output()) {
+      LOG(ERROR) << "The network has " << net.n_output() << " outputs != "
                  << n_output << " required.";
       exit(3);
     }
 
-    LOG(INFO) << "Training a MLP with arch = " << n_input << " -> "
-              << mlp.n_hidden() << " -> " << n_output
+    std::stringstream arch_str;
+    for (auto layer:net.layers()) {
+      arch_str << layer << "->";
+    }
+
+    LOG(INFO) << "Training a MLP with arch = " << arch_str.str()
               << " (output = " << (softmax ? "softmax" : "linear")
               << ")";
-    unet::NesterovGD minimize{0.01, 1.00, 0.8, 0.7, 0.9995, 3};
+    unet::NesterovGD minimize{0.01, 0.9999, 0.8, 0.8, 0.9996, 1};
 
+    double mean_error{-1};
     for (uint32_t n_batch = 0; n_batch < n_batches; ++n_batch) {
       LOG(INFO) << "Starting mini batch number " << n_batch;
       auto batch = read_batch();
-      // batch.input.segment(1, 786).array() /= 100.0;
+
       if (softmax) {
-        unet::CrossEntropy<unet::MLP> cross_ent{mlp, batch.input, batch.target};
-        minimize.fit_batch(cross_ent);
+        // auto cross_entropy = net.cross_entropy(batch.input, batch.target);
+        unet::CrossEntropy<unet::FeedForward> cross_entropy{
+          net, batch.input, batch.target};
+        if (variables.count(ARG_EVAL)) {
+          unet::Accuracy<unet::FeedForward> acc{net, batch.input, batch.target};
+          double error{acc(net.weights())};
+          mean_error = mean_error * n_batch / (n_batch + 1) + error / (n_batch + 1);
+          LOG(INFO) << "Batch error: " << error
+                    << " / Average error so far: " << mean_error;
+        } else {
+          unet::Accuracy<unet::FeedForward> acc{net, batch.input, batch.target};
+          double error{acc(net.weights())};
+          if (mean_error == -1) {
+            mean_error = error;
+          } else {
+            mean_error = 0.95 * mean_error + 0.05 * error;
+          }
+          LOG(INFO) << "Batch accuracy: " << error
+                    << " / EWMA accuracy: " << mean_error;
+
+          minimize.fit_batch(cross_entropy, net.weights());
+        }
       } else {
-        unet::L2Error<unet::MLP> l2_error{mlp, batch.input, batch.target};
-        minimize.fit_batch(l2_error);
+        auto l2_error = net.l2_error(batch.input, batch.target);
+        if (variables.count(ARG_EVAL)) {
+          double error{l2_error(net.weights())};
+          mean_error = mean_error * n_batch / (n_batch + 1) + error / (n_batch + 1);
+          LOG(INFO) << "Batch error: " << error
+                    << " / Average error so far: " << mean_error;
+        } else {
+          minimize.fit_batch(l2_error, net.weights());
+        }
       }
     }
 
@@ -240,9 +276,9 @@ int main(int argc, char **argv) {
         exit(2);
       }
       if (variables.count(ARG_SAVE)) {
-        unet::save_to_binary(model_out, mlp);
+        unet::save_to_binary(model_out, net);
       } else {
-        unet::save_to_json(model_out, mlp);
+        unet::save_to_json(model_out, net);
       }
     }
   } catch (const po::error& e) {

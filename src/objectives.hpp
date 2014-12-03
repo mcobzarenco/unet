@@ -1,10 +1,13 @@
 #pragma once
 
 #include "typedefs.hpp"
+#include "stan/agrad/rev/matrix.hpp"
+#include "stan/agrad/autodiff.hpp"
 
 #include <Eigen/Dense>
 #include <glog/logging.h>
 
+#include <chrono>
 #include <iostream>
 
 
@@ -12,37 +15,42 @@ namespace unet {
 
 template<typename Net>
 struct L2Error {
-  L2Error(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& y)
-    : net_(net), X_(X), y_(y) {}
+  L2Error(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+    : net_(net), X_(X), Y_(Y) {}
 
-  template <typename T>
-  inline T operator()(const DynamicVector<T>& weights) const;
+  template <typename Scalar>
+  inline Scalar operator()(const DynamicVector<Scalar>& weights) const;
 
-  Eigen::VectorXd& weights() { return net_.weights(); }
+  inline void gradient(const Eigen::VectorXd& weights, double& error,
+                       Eigen::VectorXd& gradient) const;
+
 private:
   Net& net_;
-  const Eigen::MatrixXd& X_, y_;
+  const Eigen::MatrixXd& X_, Y_;
 };
 
 template<typename Net>
-template <typename T>
-T L2Error<Net>::operator()(const DynamicVector<T>& weights) const {
+template <typename Scalar>
+Scalar L2Error<Net>::operator()(const DynamicVector<Scalar>& weights) const {
   CHECK_EQ(net_.num_params(), weights.size())
     << "Expected " << net_.num_params() << " parameters.";
-  DynamicMatrix<T> X{X_.cast<T>()};
-  DynamicMatrix<T> y{y_.cast<T>()};
-  DynamicMatrix<T> net_out{net_(weights, X)};
 
-  std::cout << "net_out\n" << net_out << std::endl;
-
-  DynamicMatrix<T> discrep{net_out - y};
-  T err = (discrep * discrep.transpose()).trace();
+  DynamicMatrix<Scalar> net_out{net_(weights, X_.cast<Scalar>().eval())};
+  DynamicMatrix<Scalar> discrep{net_out - Y_.cast<Scalar>()};
+  Scalar err = (discrep.transpose() * discrep).trace();
   return err / net_out.size();
 }
 
-template<typename T>
-DynamicVector<T> labels_from_distribution(const DynamicMatrix<T>& out) {
-  DynamicVector<T> classes{out.cols()};
+template<typename Net>
+inline void L2Error<Net>::gradient(
+  const Eigen::VectorXd& weights, double& error,
+  Eigen::VectorXd& gradient) const {
+  stan::agrad::gradient(*this, weights, error, gradient);
+}
+
+template<typename Scalar>
+DynamicVector<Scalar> labels_from_distribution(const DynamicMatrix<Scalar>& out) {
+  DynamicVector<Scalar> classes{out.cols()};
   for (int i = 0; i < out.cols(); ++i) {
     out.col(i).maxCoeff(&classes[i]);
   }
@@ -51,45 +59,73 @@ DynamicVector<T> labels_from_distribution(const DynamicMatrix<T>& out) {
 
 template<typename Net>
 struct CrossEntropy {
-  CrossEntropy(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& y)
-    : net_(net), X_(X), y_(y) {}
+  CrossEntropy(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+    : net_(net), X_(X), Y_(Y) {}
 
-  template <typename T>
-  inline T operator()(const Eigen::Matrix<T, Eigen::Dynamic, 1>& weights) const;
+  template <typename Scalar>
+  inline Scalar operator()(const DynamicVector<Scalar>& weights) const;
+
+  inline void gradient(const Eigen::VectorXd& weights, double& error,
+                       Eigen::VectorXd& gradient) const;
 
   Eigen::VectorXd& weights() { return net_.weights(); }
+private:
+  Net& net_;
+  const Eigen::MatrixXd& X_, Y_;
+};
+
+template<typename Net>
+template <typename Scalar>
+Scalar CrossEntropy<Net>::operator()(const DynamicVector<Scalar>& weights) const {
+  CHECK_EQ(net_.num_params(), weights.size())
+    << "Expected " << net_.num_params() << " parameters.";
+  DynamicMatrix<Scalar> net_out{net_(weights, X_.cast<Scalar>().eval())};
+  DynamicMatrix<Scalar> cross_entropy{
+    -1.0 * net_out.array().log() * Y_.cast<Scalar>().array()};
+
+  Scalar err = cross_entropy.sum() / cross_entropy.cols();
+  return err;
+}
+
+template<typename Net>
+inline void CrossEntropy<Net>::gradient(
+  const Eigen::VectorXd& weights, double& error,
+  Eigen::VectorXd& gradient) const {
+  stan::agrad::gradient(*this, weights, error, gradient);
+}
+
+template<typename Net>
+struct Accuracy {
+  Accuracy(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& y)
+    : net_(net), X_(X), y_(y) {}
+
+  template <typename Scalar>
+  inline Scalar operator()(const Eigen::Matrix<Scalar, Eigen::Dynamic, 1>& weights) const;
+
 private:
   Net& net_;
   const Eigen::MatrixXd& X_, y_;
 };
 
 template<typename Net>
-template <typename T>
-T CrossEntropy<Net>::operator()(const DynamicVector<T>& weights) const {
+template <typename Scalar>
+Scalar Accuracy<Net>::operator()(const DynamicVector<Scalar>& weights) const {
   CHECK_EQ(net_.num_params(), weights.size())
     << "Expected " << net_.num_params() << " parameters.";
-  DynamicMatrix<T> X{X_.cast<T>()};
-  DynamicMatrix<T> y{y_.cast<T>()};
-  DynamicMatrix<T> net_out{net_(weights, X)};
+  DynamicMatrix<Scalar> X{X_.cast<Scalar>()};
+  DynamicMatrix<Scalar> y{y_.cast<Scalar>()};
+  auto begin = std::chrono::high_resolution_clock::now();
+  DynamicMatrix<Scalar> net_out{net_(weights, X)};
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration =
+    std::chrono::duration_cast<std::chrono::milliseconds>(end-begin).count();
+  LOG(INFO) << "Net eval took " << duration << " ms";
 
-  DynamicVector<T> classes = labels_from_distribution(y);
-  DynamicVector<T> pred_classes = labels_from_distribution(net_out);
-
-  // std::cout << "net_out\n" << pred_classes.transpose() << std::endl;
-  // std::cout << "truth\n" << classes.transpose() << std::endl;
-
-  LOG(INFO) << "accuracy = "
-            << (pred_classes.array() == classes.array()).template cast<double>().sum() / classes.size();
-  // std::cout << "net_out\n" << net_out << std::endl;
-  // std::cout << "log(net_out)\n" << net_out.array().log() << std::endl;
-  // std::cout << "-log(net_out) * y\n" << -1.0 * net_out.array().log() * y.array()
-  //           << std::endl;
-
-  DynamicMatrix<T> cross_entropy{-1.0 * net_out.array().log() * y.array()};
-
-  T err = cross_entropy.sum() / cross_entropy.cols();
+  DynamicVector<Scalar> classes = labels_from_distribution(y);
+  DynamicVector<Scalar> pred_classes = labels_from_distribution(net_out);
+  Scalar err = (pred_classes.array() == classes.array()).template cast<double>().sum()
+    / classes.size();
   return err;
 }
-
 
 }  // namespace unet

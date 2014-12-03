@@ -1,9 +1,6 @@
 #include "feedforward.hpp"
 #include "objectives.hpp"
 
-#include "stan/agrad/rev/matrix.hpp"
-#include "stan/agrad/autodiff.hpp"
-
 #include <Eigen/Dense>
 #include <gtest/gtest.h>
 
@@ -29,7 +26,7 @@ VectorXd finite_diff(F f, const VectorXd& x) {
 }
 }
 
-TEST(FeedForward, StructuredWeights) {
+TEST(FeedForward, WeightsAsParams) {
   unet::FeedForward net{{2, 2, 1}, false};
   VectorXd w{9};
   w << 1, 2, 3, 4, 5, 6, 7, 8, 9;
@@ -65,7 +62,7 @@ TEST(FeedForward, StructuredWeights) {
     << "actual:\n" << params.b[1];
 }
 
-TEST(FeedForward, CheckGradientForLinearOutput) {
+TEST(FeedForward, CheckGradientForL2Error) {
   MatrixXd X, Y;
   double error_user{-1}, error_auto{-1};
   VectorXd grad_user, grad_auto;
@@ -77,14 +74,41 @@ TEST(FeedForward, CheckGradientForLinearOutput) {
       X = MatrixXd::Random(n_input, 100);
       Y = MatrixXd::Random(n_output, 100);
 
-      net.l2_error(X, Y, error_user, grad_user);
-      unet::L2Error<unet::FeedForward> l2_error{net, X, Y};
-      stan::agrad::gradient(l2_error, l2_error.weights(), error_auto, grad_auto);
+      auto l2_error_user = net.l2_error(X, Y);
+      unet::L2Error<unet::FeedForward> l2_error_auto{net, X, Y};
+      l2_error_user.gradient(net.weights(), error_user, grad_user);
+      l2_error_auto.gradient(net.weights(), error_auto, grad_auto);
       ASSERT_EQ(grad_user.size(), grad_auto.size());
       ASSERT_LT((error_user - error_auto) *(error_user - error_auto), 1e-20);
 
       discrep = grad_auto - grad_user;
       // cout << "[l2] discrep =\n" << discrep.transpose() * discrep << endl;
+      EXPECT_LT(discrep.transpose() * discrep, 1e-20);
+    }
+  }
+}
+
+TEST(FeedForward, CheckGradientForCrossEntropy) {
+  MatrixXd X, Y;
+  double error_user{-1}, error_auto{-1};
+  VectorXd grad_user, grad_auto;
+  VectorXd discrep;
+
+  for (uint32_t n_input = 50; n_input < 300; n_input += 23) {
+    for (uint32_t n_output = 20; n_output < 300; n_output += 31) {
+      unet::FeedForward net{{n_input, 40, 50, 20, n_output}, true, 1};
+      X = MatrixXd::Random(n_input, 100);
+      Y = MatrixXd::Random(n_output, 100);
+      unet::softmax_in_place(Y);
+
+      auto cross_entropy_user = net.cross_entropy(X, Y);
+      unet::CrossEntropy<unet::FeedForward> cross_entropy_auto{net, X, Y};
+      cross_entropy_user.gradient(net.weights(), error_user, grad_user);
+      cross_entropy_auto.gradient(net.weights(), error_auto, grad_auto);
+      ASSERT_EQ(grad_user.size(), grad_auto.size());
+      ASSERT_LT((error_user - error_auto) *(error_user - error_auto), 1e-20);
+
+      discrep = grad_auto - grad_user;
       EXPECT_LT(discrep.transpose() * discrep, 1e-20);
     }
   }
