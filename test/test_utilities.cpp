@@ -64,8 +64,8 @@ TEST(Utilities, SplitStr) {
   vector<double> exp_reals = {0.1, 4.3, -1.21, -31.3, -0.0011};
   vector<double> exp_ints = {1, 3, 21, -31, -11};
 
-  Eigen::VectorXd reals_vec{unet::vector_from_str(reals_str, ',')};
-  Eigen::VectorXd ints_vec{unet::vector_from_str(ints_str, ' ')};
+  Eigen::VectorXd reals_vec{unet::eigen_vector_from_str(reals_str, ',')};
+  Eigen::VectorXd ints_vec{unet::eigen_vector_from_str(ints_str, ' ')};
   vector<double> reals{
     reals_vec.data(), reals_vec.data() + reals_vec.size()};
   vector<double> ints{
@@ -73,6 +73,35 @@ TEST(Utilities, SplitStr) {
 
   EXPECT_EQ(exp_reals, reals);
   EXPECT_EQ(exp_ints, ints);
+}
+
+TEST(Utilities, SplitStrForArch) {
+  auto parse_uint32 = [](const std::string& x) {
+    return static_cast<uint32_t>(std::stoul(x));
+  };
+  auto arch_from_str = [&parse_uint32] (const std::string& arch) {
+    return unet::vector_from_str(arch, '-', parse_uint32);
+  };
+
+  string arch1 = "748-700-300-100-10";
+  vector<uint32_t> exp1 = {748, 700, 300, 100, 10};
+  EXPECT_EQ(exp1, arch_from_str(arch1));
+  EXPECT_EQ(unet::arch_from_str(arch1), arch_from_str(arch1));
+
+  string arch2 = "2-100000-1";
+  vector<uint32_t> exp2 = {2, 100000, 1};
+  EXPECT_EQ(exp2, arch_from_str(arch2));
+  EXPECT_EQ(unet::arch_from_str(arch2), arch_from_str(arch2));
+
+  string arch3 = "748-10-";
+  vector<uint32_t> exp3{};
+  EXPECT_EQ(exp3, arch_from_str(arch3));
+  EXPECT_EQ(unet::arch_from_str(arch3), arch_from_str(arch3));
+
+  string arch4 = "-748-10x";
+  vector<uint32_t> exp4{};
+  EXPECT_EQ(exp4, arch_from_str(arch4));
+  EXPECT_EQ(unet::arch_from_str(arch4), arch_from_str(arch4));
 }
 
 TEST(Utilities, ReadBatch) {

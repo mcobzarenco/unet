@@ -18,11 +18,11 @@
 
 
 namespace {
-constexpr char VERSION[]{"0.0.2"};
+constexpr char VERSION[]{"0.0.3"};
 
 // Name of command line arguments:
 constexpr const char* ARG_MODEL{"model"};
-constexpr const char* ARG_MLP_N_HIDDEN{"n-hidden"};
+constexpr const char* ARG_ARCH{"arch"};
 constexpr const char* ARG_LOAD{"load"};
 constexpr const char* ARG_SAVE{"save"};
 constexpr const char* ARG_LOAD_JSON{"load-json"};
@@ -39,7 +39,7 @@ constexpr const char* ARG_N_BATCHES{"n-batches"};
 
 constexpr const uint32_t DEFAULT_BATCH_SIZE{100};
 constexpr const uint32_t DEFAULT_N_BATCHES{100};
-constexpr const char* DEFAULT_MODEL{"mlp"};
+constexpr const char* DEFAULT_MODEL{"ff"};
 
 std::pair<uint32_t, uint32_t> parse_range_or_die(const std::string& range_str) {
   auto range = unet::parse_range(range_str);
@@ -64,12 +64,13 @@ int main(int argc, char **argv) {
   google::LogToStderr();
 
   std::string model, model_in_path, model_out_path;
+  std::string arch;
   std::string train_file;
   std::string input_range_str, target_range_str;
   bool softmax{false};
   uint32_t target_category{0}, n_categories{0};
   uint32_t batch_size{0}, n_batches{0};
-  uint32_t n_input{0}, n_hidden{0}, n_output{0};
+  uint32_t n_input{0}, n_output{0};
 
   std::stringstream desc_stream;
   desc_stream
@@ -80,9 +81,10 @@ int main(int argc, char **argv) {
     ("help,h", "Prints this help message.")
     (ARG_MODEL, po::value<std::string>(&model)
      ->value_name("MODEL")->default_value(DEFAULT_MODEL),
-     "What type of model to use. Supported: mlp")
-    (ARG_MLP_N_HIDDEN, po::value<uint32_t>(&n_hidden)
-     ->value_name("NUM"), "For MLPs | Number of hidden units.")
+     "What type of model to use. Supported: ff (feedforward)")
+    (ARG_ARCH, po::value<std::string>(&arch)
+     ->value_name("ARCH"), "ff | Specify the architecture of the network, "
+      "e.g. 748-500-300-100-30-10")
     (ARG_LOAD, po::value<std::string>(&model_in_path)
      ->value_name("FILE"), "Load a model of the specified type.")
     (ARG_SAVE, po::value<std::string>(&model_out_path)
@@ -199,13 +201,18 @@ int main(int argc, char **argv) {
         unet::load_from_json(model_in, net);
       }
     } else {
-      if (!variables.count(ARG_MLP_N_HIDDEN)) {
-        std::cerr << "Error: the number of units in the hidden layer needs to be"
-                  << " defined.\nUse --" << ARG_MLP_N_HIDDEN << " NUMBER\n";
+      if (!variables.count(ARG_ARCH)) {
+        std::cerr << "Error: the architecture of the network was not specified."
+                  << " Use --" << ARG_ARCH;
         exit(1);
       }
-      net = unet::FeedForward{{n_input, 500, 300, 100, n_hidden, 10}, softmax};
-      // net = unet::FeedForward{{n_input, n_hidden, n_output}, softmax};
+      auto layers = unet::arch_from_str(arch);
+      if (layers.size() == 0) {
+        std::cerr << "Error: the architecture \"" << arch << "\" "
+                  << " could not be parsed.\n";
+        exit(1);
+      }
+      net = unet::FeedForward{layers, softmax};
     }
     if (n_input != net.n_input()) {
       LOG(ERROR) << "The network has " << net.n_input() << " inputs != "
@@ -218,24 +225,26 @@ int main(int argc, char **argv) {
     }
 
     std::stringstream arch_str;
-    for (auto layer:net.layers()) {
-      arch_str << layer << "->";
+    for (size_t layer = 0; layer < net.n_layers(); layer ++) {
+      arch_str << net.layers()[layer];
+      if (layer < net.n_layers() - 1) { arch_str << "-"; }
     }
 
     LOG(INFO) << "Training a MLP with arch = " << arch_str.str()
               << " (output = " << (softmax ? "softmax" : "linear")
               << ")";
-    unet::NesterovGD minimize{0.01, 0.9999, 0.8, 0.8, 0.9996, 1};
+    unet::NesterovGD minimize{0.01, 0.9999, 0.8, 0.95, 0.9996, 1};
 
     double mean_error{-1};
     for (uint32_t n_batch = 0; n_batch < n_batches; ++n_batch) {
       LOG(INFO) << "Starting mini batch number " << n_batch;
       auto batch = read_batch();
+      batch.input /= 255.0;
 
       if (softmax) {
-        // auto cross_entropy = net.cross_entropy(batch.input, batch.target);
-        unet::CrossEntropy<unet::FeedForward> cross_entropy{
-          net, batch.input, batch.target};
+        auto cross_entropy = net.cross_entropy(batch.input, batch.target);
+        // unet::CrossEntropy<unet::FeedForward> cross_entropy{
+        //   net, batch.input, batch.target};
         if (variables.count(ARG_EVAL)) {
           unet::Accuracy<unet::FeedForward> acc{net, batch.input, batch.target};
           double error{acc(net.weights())};

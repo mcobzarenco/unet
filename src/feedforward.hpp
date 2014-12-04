@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <initializer_list>
 #include <iostream>
 #include <vector>
 
@@ -30,14 +29,15 @@ private:
 public:
   FeedForward() = default;
 
-  FeedForward(const std::initializer_list<uint32_t>& layers, const bool softmax,
+  FeedForward(const std::vector<uint32_t>& layers, const bool softmax,
               const int32_t seed=0)
     : FeedForward{layers, softmax, normal_weight_generator(0, .1, seed)} {}
 
-  inline FeedForward(const std::initializer_list<uint32_t>& layers, const bool softmax,
+  inline FeedForward(const std::vector<uint32_t>& layers, const bool softmax,
                      std::function<double()> generate_weight);
 
   const Layers& layers() const { return layers_; };
+  size_t n_layers() const { return layers_.size(); };
   uint32_t n_input() const { return layers_[0]; };
   uint32_t n_output() const { return layers_[layers_.size() - 1]; };
 
@@ -170,7 +170,7 @@ private:
 };
 
 FeedForward::FeedForward(
-  const std::initializer_list<uint32_t>& layers, const bool softmax,
+  const std::vector<uint32_t>& layers, const bool softmax,
   std::function<double()> generate_weight) : softmax_{softmax} {
   CHECK_GT(layers.size(), 2)
     << layers.size() << " layers specified, at least 3 are required.";

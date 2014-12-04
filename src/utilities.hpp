@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <iostream>
+#include <type_traits>
 
 
 namespace unet {
@@ -32,29 +33,46 @@ inline MaybePair<int32_t, int32_t> parse_range(const std::string& range_str) {
   return Pair{};
 }
 
-inline Eigen::VectorXd vector_from_str(
-  const std::string& list, const char delim) {
-  std::vector<double> elems;
+template<typename Parser>
+inline std::vector<typename std::result_of<Parser(const std::string&)>::type>
+vector_from_str(const std::string& list, const char delim, Parser parse) {
+  using ElemType = typename std::result_of<Parser(const std::string&)>::type;
+  std::vector<ElemType> elems;
   int32_t last_delim{-1};
   int32_t i{0};
-  for (i = 0; i < list.length(); ++i) {
-    if (list[i] == delim) {
-      std::string elem_str{list.substr(last_delim + 1, i - last_delim - 1)};
-      CHECK_GT(elem_str.length(), 0) << "Empty element";
-      elems.push_back(std::stod(elem_str));
-      last_delim = i;
+  try {
+    for (i = 0; i < list.length(); ++i) {
+      if (list[i] == delim) {
+        std::string elem_str{list.substr(last_delim + 1, i - last_delim - 1)};
+        if(elem_str.length() ==  0) { return std::vector<ElemType>{}; }
+        elems.push_back(parse(elem_str));
+        last_delim = i;
+      }
     }
+    std::string elem_str{list.substr(last_delim + 1, last_delim - i - 1)};
+    if(elem_str.length() ==  0) { return std::vector<ElemType>{}; }
+    elems.push_back(parse(elem_str));
+    return elems;
+  } catch (const std::exception& e) {
+    return std::vector<ElemType>{};
   }
-  std::string elem_str{list.substr(last_delim + 1, last_delim - i - 1)};
-  CHECK_GT(elem_str.length(), 0) << "Empty element";
-  elems.push_back(std::stod(elem_str));
+}
 
-  uint32_t vec_len = elems.size();
-  Eigen::Matrix<double, Eigen::Dynamic, 1> elems_vec{vec_len};
+inline std::vector<uint32_t> arch_from_str(
+  const std::string& list, const char delim='-') {
+  auto parse_uint32 = [](const std::string& x) {
+    return static_cast<uint32_t>(std::stoul(x));
+  };
+  return vector_from_str(list, delim, parse_uint32);
+}
+
+inline Eigen::VectorXd eigen_vector_from_str(
+  const std::string& list, const char delim) {
+  auto parse_double = [](const std::string& x) -> double {return std::stod(x);};
+  auto elems = vector_from_str(list, delim, parse_double);
+  Eigen::VectorXd elems_vec{static_cast<Eigen::VectorXd::Index>(elems.size())};
   uint32_t index{0};
-  for(const auto& x:elems) {
-    elems_vec[index++] = x;
-  }
+  for(const auto& x:elems) { elems_vec[index++] = x; }
   return elems_vec;
 }
 
@@ -86,7 +104,7 @@ inline Batch read_batch(std::istream& in, uint32_t batch_size,
       in.seekg(0);
     } else {
       CHECK(in.good());
-      input_vec = unet::vector_from_str(line, ',');
+      input_vec = unet::eigen_vector_from_str(line, ',');
       batch.input.col(n_batched) = input_transform(input_vec);
       batch.target.col(n_batched++) = target_transform(input_vec);
     }
