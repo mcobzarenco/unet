@@ -1,4 +1,3 @@
-#include "mlp.hpp"
 #include "feedforward.hpp"
 #include "minimize.hpp"
 #include "objectives.hpp"

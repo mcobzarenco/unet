@@ -17,7 +17,6 @@ add_executable(
     test_all.cpp
     test_activation.cpp
     test_feedforward.cpp
-    test_mlp.cpp
     test_objectives.cpp
     test_serialize.cpp
     test_utilities.cpp
