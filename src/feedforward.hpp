@@ -21,8 +21,7 @@ namespace unet {
 struct FeedForward {
 private:
   using Layers = std::vector<uint32_t>;
-  template<typename Scalar> struct ImmutableParams;
-  template<typename Scalar> struct MutableParams;
+  template<typename Scalar> struct Params;
   struct L2Error;
   struct CrossEntropy;
 
@@ -46,8 +45,8 @@ public:
   Eigen::VectorXd& weights() { return weights_; }
   const Eigen::VectorXd& weights() const { return weights_; }
 
-  inline MutableParams<double> weights_as_params();
-  inline ImmutableParams<double> weights_as_params() const;
+  inline Params<Eigen::VectorXd> weights_as_params();
+  inline Params<const Eigen::VectorXd> weights_as_params() const;
 
   template<typename T>
   inline DynamicMatrix<T> operator()(const DynamicMatrix<T>& X) const;
@@ -73,22 +72,27 @@ public:
 private:
 
   // Weights as parameters utilities:
+  template<typename Scalar>
+  struct Params;
 
   template<typename Scalar>
-  struct ImmutableParams {
-    std::vector<Eigen::Map<const DynamicMatrix<Scalar>>> W;
-    std::vector<Eigen::Map<const DynamicVector<Scalar>>> b;
-  };
-
-  template<typename Scalar>
-  struct MutableParams {
+  struct Params<DynamicVector<Scalar>> {
     std::vector<Eigen::Map<DynamicMatrix<Scalar>>> W;
     std::vector<Eigen::Map<DynamicVector<Scalar>>> b;
   };
 
-  template<typename ScalarPtr, typename Params>
-  static inline Params map_weights_as_params(
-    const Layers& layers, Params& params, ScalarPtr head) {
+  template<typename Scalar>
+  struct Params<const DynamicVector<Scalar>> {
+    std::vector<Eigen::Map<const DynamicMatrix<Scalar>>> W;
+    std::vector<Eigen::Map<const DynamicVector<Scalar>>> b;
+  };
+
+  template<typename T>
+  static inline Params<T> weights_as_params(
+    const Layers& layers, T& weights) {
+    CHECK_EQ(weights.size(), FeedForward::num_params(layers));
+    Params<T> params;
+    auto head = weights.data();
     for (uint32_t layer = 0; layer < layers.size() - 1; ++layer) {
       params.W.emplace_back(head, layers[layer + 1], layers[layer]);
       head += layers[layer + 1] * layers[layer];
@@ -96,24 +100,6 @@ private:
       params.b.emplace_back(head, layers[layer + 1]);
       head += layers[layer + 1];
     };
-    return params;
-  }
-
-  template<typename Scalar>
-  static inline ImmutableParams<Scalar> weights_as_params(
-    const Layers& layers, const DynamicVector<Scalar>& weights) {
-    CHECK_EQ(weights.size(), FeedForward::num_params(layers));
-    ImmutableParams<Scalar> params;
-    map_weights_as_params(layers, params, weights.data());
-    return params;
-  }
-
-  template<typename Scalar>
-  static inline MutableParams<Scalar> weights_as_params(
-    const Layers& layers, DynamicVector<Scalar>& weights) {
-    CHECK_EQ(weights.size(), FeedForward::num_params(layers));
-    MutableParams<Scalar> params;
-    map_weights_as_params(layers, params, weights.data());
     return params;
   }
 
@@ -184,21 +170,21 @@ FeedForward::FeedForward(
     auto& W = params.W[layer];
     std::transform(W.data(), W.data() + W.size(), W.data(),
                    [&] (const double&) {
-                     if (layer == 0 || layer == params.W.size() - 1 ||
-                         generate_weight() < -0.2)
+                     // if (generate_weight() < -0.1)
                        return generate_weight();
-                     else
-                       return 0.0;
+                     // else
+                     //   return 0.0;
                    } );
     params.b[layer] = Eigen::VectorXd::Zero(params.b[layer].size());
   }
 }
 
-FeedForward::MutableParams<double> FeedForward::weights_as_params() {
+FeedForward::Params<Eigen::VectorXd> FeedForward::weights_as_params() {
   return FeedForward::weights_as_params(layers_, weights_);
 }
 
-FeedForward::ImmutableParams<double> FeedForward::weights_as_params() const {
+FeedForward::Params<const Eigen::VectorXd> FeedForward::weights_as_params()
+  const {
   return FeedForward::weights_as_params(layers_, weights_);
 }
 
