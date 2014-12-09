@@ -12,6 +12,8 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
 namespace {
+constexpr double EPS = 1e-14;
+
 template<typename F>
 VectorXd finite_diff(F f, const VectorXd& x) {
   double eps{0.000001};
@@ -24,7 +26,22 @@ VectorXd finite_diff(F f, const VectorXd& x) {
   }
   return grad;
 }
+
+template<typename Net, typename UserObjective, typename AutoObjective>
+void expect_agreement(const Net& net, const UserObjective& user_obj,
+                    const AutoObjective& auto_obj) {
+  double error_user{-1}, error_auto{-1};
+  VectorXd grad_user, grad_auto;
+
+  EXPECT_DOUBLE_EQ(auto_obj(net.weights()), user_obj(net.weights()));
+
+  user_obj.gradient(net.weights(), error_user, grad_user);
+  auto_obj.gradient(net.weights(), error_auto, grad_auto);
+  ASSERT_EQ(grad_user.size(), grad_auto.size());
+  EXPECT_NEAR(error_auto, error_user, EPS);
+  EXPECT_NEAR(0, (grad_auto - grad_user).squaredNorm(), EPS);
 }
+}  // anonymous namespace
 
 TEST(FeedForward, WeightsAsParams) {
   unet::FeedForward net{{2, 2, 1}, false};
@@ -64,9 +81,6 @@ TEST(FeedForward, WeightsAsParams) {
 
 TEST(FeedForward, CheckGradientForL2Error) {
   MatrixXd X, Y;
-  double error_user{-1}, error_auto{-1};
-  VectorXd grad_user, grad_auto;
-  VectorXd discrep;
 
   for (uint32_t n_input = 50; n_input < 300; n_input += 23) {
     for (uint32_t n_output = 20; n_output < 300; n_output += 31) {
@@ -76,22 +90,13 @@ TEST(FeedForward, CheckGradientForL2Error) {
 
       auto l2_error_user = net.l2_error(X, Y);
       unet::L2Error<unet::FeedForward> l2_error_auto{net, X, Y};
-      l2_error_user.gradient(net.weights(), error_user, grad_user);
-      l2_error_auto.gradient(net.weights(), error_auto, grad_auto);
-      ASSERT_EQ(grad_user.size(), grad_auto.size());
-      ASSERT_LT((error_user - error_auto) *(error_user - error_auto), 1e-20);
-
-      discrep = grad_auto - grad_user;
-      // cout << "[l2] discrep =\n" << discrep.transpose() * discrep << endl;
-      EXPECT_LT(discrep.transpose() * discrep, 1e-20);
+      expect_agreement(net, l2_error_user, l2_error_auto);
     }
   }
 }
 
 TEST(FeedForward, CheckGradientForCrossEntropy) {
   MatrixXd X, Y;
-  double error_user{-1}, error_auto{-1};
-  VectorXd grad_user, grad_auto;
   VectorXd discrep;
 
   for (uint32_t n_input = 50; n_input < 300; n_input += 23) {
@@ -103,13 +108,7 @@ TEST(FeedForward, CheckGradientForCrossEntropy) {
 
       auto cross_entropy_user = net.cross_entropy(X, Y);
       unet::CrossEntropy<unet::FeedForward> cross_entropy_auto{net, X, Y};
-      cross_entropy_user.gradient(net.weights(), error_user, grad_user);
-      cross_entropy_auto.gradient(net.weights(), error_auto, grad_auto);
-      ASSERT_EQ(grad_user.size(), grad_auto.size());
-      ASSERT_LT((error_user - error_auto) *(error_user - error_auto), 1e-20);
-
-      discrep = grad_auto - grad_user;
-      EXPECT_LT(discrep.transpose() * discrep, 1e-20);
+      expect_agreement(net, cross_entropy_user, cross_entropy_auto);
     }
   }
 }
