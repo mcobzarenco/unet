@@ -13,35 +13,53 @@ using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-namespace {
-struct CalcSigmoid {
-  template<typename T>
-  T operator()(const unet::DynamicVector<T>& x) const { return unet::sigmoid(x[0]); }
-};
-}
-
-TEST(Activation, SameSigmoid) {
+template<typename NonLinearity>
+void test_nonlinearity_consistency() {
   std::mt19937 generator{1337};
   std::normal_distribution<> normal(0, 10);
   double x;
+  double double_value;
+  stan::agrad::var agard_value;
+
+  // Test it gives the same values for doubles and agrad::var
   for(uint32_t iter = 0; iter < 1000; ++iter) {
     x = normal(generator);
-    EXPECT_EQ(unet::sigmoid(x), unet::sigmoid(stan::agrad::var{x}));
+    double_value = NonLinearity::activation(x);
+    agard_value = NonLinearity::activation(stan::agrad::var{x});
+    EXPECT_EQ(double_value, agard_value);
+  }
+
+  // Test whether the matrix operations agree with their scalar counterparts
+  // VectorXd v_x{1}, auto_dx{1}, user_dx{1};
+  // double fx;
+  // for(uint32_t iter = 0; iter < 1000; ++iter) {
+  //   v_x[0] = normal(generator);
+  //   user_dx =
+  //     stan::agrad::gradient(CalcSigmoid{}, v_x, fx, auto_dx);
+  //   NonLinearity::derivative_in_place(v_x)
+  //     discrep = v_dx[0] - ;
+  //   EXPECT_LT(discrep * discrep, 1e-15);
+  // }
+
+  // Test that auto diff and the provided derivative agree
+  VectorXd v_x{1}, auto_dx{1};
+  double auto_fx, user_dx;
+  auto nlin = [](const auto& x) { return NonLinearity::activation(x[0]); };
+  for(uint32_t iter = 0; iter < 1000; ++iter) {
+    v_x[0] = normal(generator);
+    user_dx = NonLinearity::derivative(v_x[0]);
+    stan::agrad::gradient(nlin, v_x, auto_fx, auto_dx);
+    ASSERT_NEAR(auto_dx[0], user_dx, 1e-14);
+    ASSERT_NEAR(auto_fx, NonLinearity::activation(v_x[0]), 1e-14);
   }
 }
 
-TEST(Activation, SigmoidDerivative) {
-  std::mt19937 generator{1337};
-  std::normal_distribution<> normal(0, 10);
-  double discrep, fx;
-  VectorXd x{1}, dx{1};
+TEST(Activation, Tanh) {
+  test_nonlinearity_consistency<unet::Tanh>();
+}
 
-  for(uint32_t iter = 0; iter < 1000; ++iter) {
-    x[0] = normal(generator);
-    stan::agrad::gradient(CalcSigmoid{}, x, fx, dx);
-    discrep = dx[0] - unet::dsigmoid(x[0]);
-    EXPECT_LT(discrep * discrep, 1e-15);
-  }
+TEST(Activation, ReLU) {
+  test_nonlinearity_consistency<unet::ReLU>();
 }
 
 TEST(Activation, Softmax) {

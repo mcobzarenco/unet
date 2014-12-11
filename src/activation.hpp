@@ -9,36 +9,75 @@
 
 
 namespace unet {
+namespace internal {
 
-using std::exp;
-using stan::agrad::exp;
+template<typename NonLinearity>
+struct ApplyInPlace : public NonLinearity {
+  static double derivative(const double x) {
+    return NonLinearity::derivative_value(NonLinearity::activation(x));
+  }
 
-using std::tanh;
-using stan::agrad::tanh;
+  template<typename Scalar>
+  static void activation_in_place(DynamicMatrix<Scalar>& x) {
+    auto nlin = [] (const Scalar& x) {return NonLinearity::activation(x);};
+    std::transform(x.data(), x.data() + x.size(), x.data(), nlin);
+  }
 
-inline double sigmoid(double x) {
-  // return 1.0 / (1.0 + std::exp(-2.0 * x));
-  return tanh(x);
-}
+  template<typename Scalar>
+  static void derivative_in_place(DynamicMatrix<Scalar>& x) {
+    auto nlin = [] (const Scalar& x) {return NonLinearity::derivative(x);};
+    std::transform(x.data(), x.data() + x.size(), x.data(), nlin);
+  }
 
-inline double dsigmoid(double x) {
-  // return 1.0 / (1.0 + std::exp(-2.0 * x));
-  double t{tanh(x)};
-  return 1.0 - t * t;
-}
+  template<typename Scalar>
+  static void derivative_value_in_place(DynamicMatrix<Scalar>& x) {
+    auto nlin = [] (const Scalar& x) {return NonLinearity::derivative_value(x);};
+    std::transform(x.data(), x.data() + x.size(), x.data(), nlin);
+  }
+};
 
-inline stan::agrad::var sigmoid(const stan::agrad::var& x) {
-  return tanh(x);
-  // return 1.0 / (1.0 + stan::agrad::exp(-2.0 * x));
-  // return stan::agrad::inv_logit(x);
-  // return 1.0 + stan::agrad::tanh(x / 2.0);
-}
+struct Tanh {
+  static const char* name() {
+    static const char* NAME{"tanh"};
+    return NAME;
+  }
 
-template<typename Scalar>
-inline void sigmoid_in_place(DynamicMatrix<Scalar>& x) {
-  std::transform(x.data(), x.data() + x.size(), x.data(),
-                 [] (const Scalar& x) {return sigmoid(x);});
-}
+  static double activation(const double x) {
+    return std::tanh(x);
+  }
+
+  static stan::agrad::var activation(const stan::agrad::var& x) {
+    return stan::agrad::tanh(x);
+  }
+
+  static double derivative_value(double fx) {
+    return 1.0 - fx * fx;
+  }
+};
+
+struct ReLU {
+  static const char* name() {
+    static const char* NAME{"relu"};
+    return NAME;
+  }
+
+  static double activation(const double x) {
+    return std::max(0.0, x);
+  }
+
+  static stan::agrad::var activation(const stan::agrad::var& x) {
+    return std::max(stan::agrad::var{0.0}, x);
+  }
+
+  static double derivative_value(double fx) {
+    return fx > 0.0 ? 1.0 : 0.0;
+  }
+};
+
+}  // namespace internal
+
+using Tanh = internal::ApplyInPlace<internal::Tanh>;
+using ReLU = internal::ApplyInPlace<internal::ReLU>;
 
 template<typename Scalar>
 void softmax_in_place(DynamicMatrix<Scalar>& X) {

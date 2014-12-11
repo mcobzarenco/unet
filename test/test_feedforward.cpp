@@ -44,7 +44,7 @@ void expect_agreement(const Net& net, const UserObjective& user_obj,
 }  // anonymous namespace
 
 TEST(FeedForward, WeightsAsParams) {
-  unet::FeedForward net{{2, 2, 1}, false};
+  unet::FeedForward<unet::Tanh> net{{2, 2, 1}, false};
   VectorXd w{9};
   w << 1, 2, 3, 4, 5, 6, 7, 8, 9;
   net.weights() = w;
@@ -80,34 +80,36 @@ TEST(FeedForward, WeightsAsParams) {
 }
 
 TEST(FeedForward, CheckGradientForL2Error) {
+  using unet::FeedForward;
   MatrixXd X, Y;
 
   for (uint32_t n_input = 50; n_input < 300; n_input += 23) {
     for (uint32_t n_output = 20; n_output < 300; n_output += 31) {
-      unet::FeedForward net{{n_input, 40, 50, 20, n_output}, false, 1};
+      FeedForward<unet::ReLU> net{{n_input, 40, 50, 20, n_output}, false, 1};
       X = MatrixXd::Random(n_input, 100);
       Y = MatrixXd::Random(n_output, 100);
 
       auto l2_error_user = net.l2_error(X, Y);
-      unet::L2Error<unet::FeedForward> l2_error_auto{net, X, Y};
+      unet::L2Error<FeedForward<unet::ReLU>> l2_error_auto{net, X, Y};
       expect_agreement(net, l2_error_user, l2_error_auto);
     }
   }
 }
 
 TEST(FeedForward, CheckGradientForCrossEntropy) {
+  using unet::FeedForward;
   MatrixXd X, Y;
   VectorXd discrep;
 
   for (uint32_t n_input = 50; n_input < 300; n_input += 23) {
     for (uint32_t n_output = 20; n_output < 300; n_output += 31) {
-      unet::FeedForward net{{n_input, 40, 50, 20, n_output}, true, 1};
+      FeedForward<unet::Tanh> net{{n_input, 40, 50, 20, n_output}, true, 1};
       X = MatrixXd::Random(n_input, 100);
       Y = MatrixXd::Random(n_output, 100);
       unet::softmax_in_place(Y);
 
       auto cross_entropy_user = net.cross_entropy(X, Y);
-      unet::CrossEntropy<unet::FeedForward> cross_entropy_auto{net, X, Y};
+      unet::CrossEntropy<FeedForward<unet::Tanh>> cross_entropy_auto{net, X, Y};
       expect_agreement(net, cross_entropy_user, cross_entropy_auto);
     }
   }
