@@ -4,7 +4,6 @@ add_executable(
 )
 target_link_libraries(
   unet
-    ${CMAKE_SOURCE_DIR}/lib/libstan.a
     ${GLOG_LIBRARY}
     ${Boost_LIBRARIES}
 )

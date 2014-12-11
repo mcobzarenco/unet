@@ -17,22 +17,22 @@ namespace stan {
         vari** v_;
         size_t size_;
       public:
-        dot_self_vari(vari** v, size_t size) 
-          : vari(var_dot_self(v,size)), 
+        dot_self_vari(vari** v, size_t size)
+          : vari(var_dot_self(v,size)),
             v_(v),
             size_(size) {
         }
         template<typename Derived>
-        dot_self_vari(const Eigen::DenseBase<Derived> &v) : 
+        dot_self_vari(const Eigen::DenseBase<Derived> &v) :
           vari(var_dot_self(v)), size_(v.size()) {
-          v_ = (vari**)memalloc_.alloc(size_*sizeof(vari*));
+          v_ = (vari**)memalloc_().alloc(size_*sizeof(vari*));
           for (size_t i = 0; i < size_; i++)
             v_[i] = v[i].vi_;
         }
         template <int R, int C>
         dot_self_vari(const Eigen::Matrix<var,R,C>& v) :
           vari(var_dot_self(v)), size_(v.size()) {
-          v_ = (vari**) memalloc_.alloc(size_ * sizeof(vari*));
+          v_ = (vari**) memalloc_().alloc(size_ * sizeof(vari*));
           for (size_t i = 0; i < size_; ++i)
             v_[i] = v(i).vi_;
         }
@@ -58,7 +58,7 @@ namespace stan {
           return sum;
         }
         virtual void chain() {
-          for (size_t i = 0; i < size_; ++i) 
+          for (size_t i = 0; i < size_; ++i)
             v_[i]->adj_ += adj_ * 2.0 * v_[i]->val_;
         }
       };
@@ -85,7 +85,7 @@ namespace stan {
      * @tparam T scalar type
      */
     template<int R,int C>
-    inline Eigen::Matrix<var,1,C> 
+    inline Eigen::Matrix<var,1,C>
     columns_dot_self(const Eigen::Matrix<var,R,C>& x) {
       Eigen::Matrix<var,1,C> ret(1,x.cols());
       for (size_type i = 0; i < x.cols(); i++) {
@@ -94,7 +94,7 @@ namespace stan {
       return ret;
     }
 
-    
+
   }
 }
 #endif

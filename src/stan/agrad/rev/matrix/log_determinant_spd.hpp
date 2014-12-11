@@ -10,7 +10,7 @@
 #include <stan/error_handling/matrix/check_square.hpp>
 
 // FIXME: use explicit files
-#include <stan/agrad/rev.hpp> 
+#include <stan/agrad/rev.hpp>
 
 namespace stan {
   namespace agrad {
@@ -20,10 +20,10 @@ namespace stan {
       class log_determinant_spd_alloc : public chainable_alloc {
       public:
         virtual ~log_determinant_spd_alloc() {}
-        
+
         Eigen::Matrix<double,R,C> _invA;
       };
-      
+
 
       template<int R,int C>
       class log_determinant_spd_vari : public vari {
@@ -33,10 +33,10 @@ namespace stan {
         vari** _adjARef;
       public:
         log_determinant_spd_vari(const Eigen::Matrix<var,R,C> &A)
-          : vari(log_determinant_spd_vari_calc(A,&_alloc)), 
+          : vari(log_determinant_spd_vari_calc(A,&_alloc)),
             _rows(A.rows()),
             _cols(A.cols()),
-            _adjARef((vari**)stan::agrad::memalloc_.alloc(sizeof(vari*) 
+            _adjARef((vari**)stan::agrad::memalloc_().alloc(sizeof(vari*)
                                                           * A.rows() * A.cols()))
         {
           size_t pos = 0;
@@ -47,7 +47,7 @@ namespace stan {
           }
         }
 
-        static 
+        static
         double log_determinant_spd_vari_calc(const Eigen::Matrix<var,R,C> &A,
                                              log_determinant_spd_alloc<R,C> **alloc)
         {
@@ -74,7 +74,7 @@ namespace stan {
           // compute the inverse of A (needed for the derivative)
           (*alloc)->_invA.setIdentity(A.rows(),A.cols());
           ldlt.solveInPlace((*alloc)->_invA);
-          
+
           if (ldlt.isNegative() || (ldlt.vectorD().array() <= 1e-16).any()) {
             double y = 0;
             dom_err("log_determinant_spd",
@@ -109,7 +109,7 @@ namespace stan {
 
       return var(new log_determinant_spd_vari<R,C>(m));
     }
-    
+
   }
 }
 #endif

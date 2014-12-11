@@ -14,8 +14,8 @@
 
 namespace stan {
   namespace agrad {
-    
-    inline matrix_v 
+
+    inline matrix_v
     multiply_lower_tri_self_transpose(const matrix_v& L) {
       //stan::error_handling::check_square("multiply_lower_tri_self_transpose",
       //L,"L",(double*)0);
@@ -32,7 +32,7 @@ namespace stan {
         Knz = (K-J)*J + (J * (J + 1)) / 2;
       else // if (K < J)
         Knz = (K * (K + 1)) / 2;
-      vari** vs = (vari**)memalloc_.alloc( Knz * sizeof(vari*) );
+      vari** vs = (vari**)memalloc_().alloc( Knz * sizeof(vari*) );
       int pos = 0;
       for (int m = 0; m < K; ++m)
         for (int n = 0; n < ((J < (m+1))?J:(m+1)); ++n) {

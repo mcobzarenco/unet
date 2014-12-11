@@ -26,7 +26,6 @@ target_link_libraries(
   test_all
     pthread
     gtest
-    ${CMAKE_SOURCE_DIR}/lib/libstan.a
     ${Boost_LIBRARIES}
     ${GLOG_LIBRARY}
 )
