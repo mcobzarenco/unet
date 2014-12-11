@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
 
-    unet::FeedForward net;
+    unet::FeedForward<unet::ReLU> net;
     if (variables.count(ARG_LOAD) || variables.count(ARG_LOAD_JSON)) {
       LOG(INFO) << "Loading a model of type " << model << " from file "
                 << model_in_path;
@@ -211,7 +211,7 @@ int main(int argc, char **argv) {
                   << " could not be parsed.\n";
         exit(1);
       }
-      net = unet::FeedForward{layers, softmax};
+      net = unet::FeedForward<unet::ReLU>{layers, softmax};
     }
     if (n_input != net.n_input()) {
       LOG(ERROR) << "The network has " << net.n_input() << " inputs != "
@@ -232,28 +232,29 @@ int main(int argc, char **argv) {
     LOG(INFO) << "Training a MLP with arch = " << arch_str.str()
               << " (output = " << (softmax ? "softmax" : "linear")
               << ")";
-    unet::NesterovGD minimize{0.01, 0.9999, 0.8, 0.95, 0.9996, 1};
+    unet::NesterovGD minimize{0.001, 1, 1, 0.4, 0.9996, 1};
 
-    double mean_error{-1};
+    double mean_error{0};
     for (uint32_t n_batch = 0; n_batch < n_batches; ++n_batch) {
       LOG(INFO) << "Starting mini batch number " << n_batch;
       auto batch = read_batch();
-      batch.input /= 255.0;
+      // batch.input /= 255.0;
+      // batch.target /= 255.0;
 
       if (softmax) {
         auto cross_entropy = net.cross_entropy(batch.input, batch.target);
-        // unet::CrossEntropy<unet::FeedForward> cross_entropy{
+        // unet::CrossEntropy<unet::FeedForward<unet::ReLU>> cross_entropy{
         //   net, batch.input, batch.target};
         if (variables.count(ARG_EVAL)) {
-          unet::Accuracy<unet::FeedForward> acc{net, batch.input, batch.target};
+          unet::Accuracy<unet::FeedForward<unet::ReLU>> acc{net, batch.input, batch.target};
           double error{acc(net.weights())};
           mean_error = mean_error * n_batch / (n_batch + 1) + error / (n_batch + 1);
           LOG(INFO) << "Batch error: " << error
                     << " / Average error so far: " << mean_error;
         } else {
-          unet::Accuracy<unet::FeedForward> acc{net, batch.input, batch.target};
+          unet::Accuracy<unet::FeedForward<unet::ReLU>> acc{net, batch.input, batch.target};
           double error{acc(net.weights())};
-          if (mean_error == -1) {
+          if (mean_error == 0) {
             mean_error = error;
           } else {
             mean_error = 0.95 * mean_error + 0.05 * error;
@@ -266,12 +267,34 @@ int main(int argc, char **argv) {
       } else {
         auto l2_error = net.l2_error(batch.input, batch.target);
         if (variables.count(ARG_EVAL)) {
+          std::ofstream fout{"netout", std::ios::out};
+          Eigen::MatrixXd out{net(batch.input)};
+          // std::cout << out << "\n";
+
+          for (uint32_t j, i = 0; i < out.cols(); ++i) {
+            for (j = 0; j < out.col(i).size() - 1; ++j) {
+              fout << (out.col(i)[j]) << ",";
+            }
+            fout << (out.col(i)[j]);
+            fout << "\n";
+          }
+
           double error{l2_error(net.weights())};
           mean_error = mean_error * n_batch / (n_batch + 1) + error / (n_batch + 1);
           LOG(INFO) << "Batch error: " << error
                     << " / Average error so far: " << mean_error;
         } else {
+          double error{l2_error(net.weights())};
+          if (mean_error == 0) {
+            mean_error = error;
+          } else {
+            mean_error = 0.95 * mean_error + 0.05 * error;
+          }
+          LOG(INFO) << "EWMA error: " << mean_error;
+
           minimize.fit_batch(l2_error, net.weights());
+          // auto params = net.weights_as_params();
+          // params.W[1] = params.W[0].transpose();
         }
       }
     }

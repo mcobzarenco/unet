@@ -2,7 +2,7 @@ project(unet)
 cmake_minimum_required (VERSION 2.8)
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -std=c++14 -pedantic -Wall -Wno-deprecated-register -g -O3 -ftree-vectorize -march=native")
+set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -std=c++14 -pedantic -Wall -Wno-deprecated-register -Wno-deprecated-declarations -g -O3 -ftree-vectorize -march=native")
 
 # Package Dependencies
 # ==============================================================================
@@ -27,5 +27,14 @@ if(MKL_ROOT)
     include_directories(${MKL_ROOT}/include)
 endif()
 
+# Subdirectories
+# ==============================================================================
+
 add_subdirectory(src)
 add_subdirectory(test)
+
+# Install Scripts
+# ==============================================================================
+
+file(GLOB UNET_HEADERS src/*.hpp)
+install(FILES ${UNET_HEADERS} DESTINATION include/unet)
