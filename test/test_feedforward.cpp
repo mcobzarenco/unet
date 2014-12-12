@@ -90,7 +90,7 @@ TEST(FeedForward, CheckGradientForL2Error) {
       Y = MatrixXd::Random(n_output, 100);
 
       auto l2_error_user = net.l2_error(X, Y);
-      unet::L2Error<FeedForward<unet::ReLU>> l2_error_auto{net, X, Y};
+      unet::agrad::L2Error<FeedForward<unet::ReLU>> l2_error_auto{net, X, Y};
       expect_agreement(net, l2_error_user, l2_error_auto);
     }
   }
@@ -109,7 +109,7 @@ TEST(FeedForward, CheckGradientForCrossEntropy) {
       unet::softmax_in_place(Y);
 
       auto cross_entropy_user = net.cross_entropy(X, Y);
-      unet::CrossEntropy<FeedForward<unet::Tanh>> cross_entropy_auto{net, X, Y};
+      unet::agrad::CrossEntropy<FeedForward<unet::Tanh>> cross_entropy_auto{net, X, Y};
       expect_agreement(net, cross_entropy_user, cross_entropy_auto);
     }
   }

@@ -69,7 +69,7 @@ TEST(Objectives, L2Error) {
   fixed_out.output_.resize(3, 2);
   fixed_out.output_ = y;
   fixed_out.weights_ = Eigen::VectorXd::Random(4);
-  unet::L2Error<FixedOutput> objective0{fixed_out, X, y};
+  unet::agrad::L2Error<FixedOutput> objective0{fixed_out, X, y};
   stan::agrad::gradient(objective0, fixed_out.weights_, error, grad);
   EXPECT_EQ(0, error);
   EXPECT_EQ(0, grad.transpose() * grad);
@@ -101,7 +101,7 @@ TEST(Objectives, CrossEntropy) {
   fixed_out.output_.resize(3, 2);
   fixed_out.output_ = y;
   fixed_out.weights_ = Eigen::VectorXd::Random(4);
-  unet::CrossEntropy<FixedOutput> objective0{fixed_out, X, y};
+  unet::agrad::CrossEntropy<FixedOutput> objective0{fixed_out, X, y};
   stan::agrad::gradient(objective0, fixed_out.weights_, error, grad);
   EXPECT_EQ(y_entropy, error);
   EXPECT_EQ(0, grad.transpose() * grad);

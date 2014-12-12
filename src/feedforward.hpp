@@ -3,6 +3,7 @@
 #include "activation.hpp"
 #include "init.hpp"
 #include "typedefs.hpp"
+#include "objectives.hpp"
 #include "utilities.hpp"
 
 #include <cereal/cereal.hpp>
@@ -23,8 +24,8 @@ struct FeedForward {
 private:
   using Layers = std::vector<uint32_t>;
   template<typename Scalar> struct Params;
-  struct L2Error;
-  struct CrossEntropy;
+  using L2ErrorObjective = L2Error<FeedForward<NonLinearity>>;
+  using CrossEntropyObjective = CrossEntropy<FeedForward<NonLinearity>>;
 
 public:
   FeedForward() = default;
@@ -55,13 +56,24 @@ public:
   inline DynamicMatrix<T> operator()(const DynamicVector<T>& weights,
                                      const DynamicMatrix<T>& X) const;
 
-  inline L2Error l2_error(const Eigen::MatrixXd& X,
-                          const Eigen::MatrixXd& Y);
-  inline CrossEntropy cross_entropy(const Eigen::MatrixXd& X,
-                                    const Eigen::MatrixXd& Y);
+  L2ErrorObjective l2_error(const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y) {
+    return L2ErrorObjective{*this, X, Y};
+  }
+  CrossEntropyObjective cross_entropy(const Eigen::MatrixXd& X,
+                                      const Eigen::MatrixXd& Y) {
+    return CrossEntropyObjective{*this, X, Y};
+  }
 
   template<class Archive>
   inline void serialize(Archive& archive);
+
+  template<typename Objective>
+  void gradient(const Eigen::VectorXd& weights, const Eigen::MatrixXd& X,
+                const Eigen::MatrixXd& Y, const Objective& objective,
+                double& error, Eigen::VectorXd& gradient) const {
+    FeedForward::gradient(layers_, softmax_, weights,
+                          X, Y, objective, error, gradient);
+  }
 
   static inline uint32_t num_params(const Layers& layers);
 
@@ -113,41 +125,6 @@ private:
     const Eigen::MatrixXd& Y, const OutputGradient& output_gradient,
     double& error, Eigen::VectorXd& gradient);
 
-  struct L2Error {
-    L2Error(const FeedForward& net, const Eigen::MatrixXd& X,
-            const Eigen::MatrixXd& Y) : net_{net}, X_{X}, Y_{Y} {}
-
-    inline double operator()(const Eigen::VectorXd& weights) const;
-    inline void gradient(const Eigen::VectorXd& weights, double& error,
-                         Eigen::VectorXd& gradient) const;
-
-  private:
-    static inline void output_gradient(
-      const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
-      double& error, Eigen::MatrixXd& out_grad);
-
-    const FeedForward& net_;
-    const Eigen::MatrixXd& X_;
-    const Eigen::MatrixXd& Y_;
-  };
-
-  struct CrossEntropy {
-    CrossEntropy(const FeedForward& net, const Eigen::MatrixXd& X,
-                 const Eigen::MatrixXd& Y) : net_{net}, X_{X}, Y_{Y} {}
-
-    inline double operator()(const Eigen::VectorXd& weights) const;
-    inline void gradient(const Eigen::VectorXd& weights, double& error,
-                         Eigen::VectorXd& gradient) const;
-
-  private:
-    static inline void output_gradient(
-      const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
-      double& error, Eigen::MatrixXd& out_grad);
-
-    const FeedForward& net_;
-    const Eigen::MatrixXd& X_;
-    const Eigen::MatrixXd& Y_;
-  };
 
   // Feedforward network state:
 
@@ -202,18 +179,6 @@ DynamicMatrix<Scalar> FeedForward<NonLinearity>::operator()(
   const DynamicVector<Scalar>& weights, const DynamicMatrix<Scalar>& X) const {
   CHECK_EQ(num_params(), weights.size());
   return FeedForward::function(layers_, softmax_, weights, X);
-}
-
-template<typename NonLinearity>
-typename FeedForward<NonLinearity>::L2Error FeedForward<NonLinearity>::
-l2_error(const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y) {
-  return L2Error(*this, X, Y);
-}
-
-template<typename NonLinearity>
-typename FeedForward<NonLinearity>::CrossEntropy FeedForward<NonLinearity>::
-cross_entropy(const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y) {
-  return CrossEntropy(*this, X, Y);
 }
 
 template<typename NonLinearity>
@@ -300,54 +265,6 @@ void FeedForward<NonLinearity>::gradient(
     grad.W[layer] = S * outs[layer].transpose();
     grad.b[layer] = S.rowwise().sum();
   }
-}
-
-template<typename NonLinearity>
-double FeedForward<NonLinearity>::L2Error::operator()(
-  const Eigen::VectorXd& weights) const {
-  Eigen::MatrixXd discrep{net_(weights, X_) - Y_};
-  return (discrep.transpose() * discrep).trace() / Y_.size();
-}
-
-template<typename NonLinearity>
-void FeedForward<NonLinearity>::L2Error::gradient(
-  const Eigen::VectorXd& weights, double& error,
-  Eigen::VectorXd& gradient) const {
-  FeedForward::gradient(
-    net_.layers_, net_.softmax_, weights, X_, Y_,
-    FeedForward::L2Error::output_gradient, error, gradient);
-}
-
-template<typename NonLinearity>
-void FeedForward<NonLinearity>::L2Error::output_gradient(
-  const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
-  double& error, Eigen::MatrixXd& out_grad) {
-  out_grad = 2.0 * (net_out - Y) / net_out.size();
-  error = net_out.size() * (out_grad.transpose() * out_grad).trace() / 4.0;
-}
-
-template<typename NonLinearity>
-double FeedForward<NonLinearity>::CrossEntropy::operator()(
-  const Eigen::VectorXd& weights) const {
-  Eigen::MatrixXd cross_entropy{
-    -1.0 * net_(weights, X_).array().log() * Y_.array()};
-  return cross_entropy.sum() / cross_entropy.cols();
-}
-
-template<typename NonLinearity>
-void FeedForward<NonLinearity>::CrossEntropy::gradient(
-  const Eigen::VectorXd& weights, double& error, Eigen::VectorXd& gradient) const {
-  FeedForward<NonLinearity>::gradient(
-    net_.layers_, net_.softmax_, weights, X_, Y_,
-    FeedForward<NonLinearity>::CrossEntropy::output_gradient, error, gradient);
-}
-
-template<typename NonLinearity>
-void FeedForward<NonLinearity>::CrossEntropy::output_gradient(
-  const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
-  double& error, Eigen::MatrixXd& out_grad) {
-  out_grad = -(Y.array() - net_out.array()) / net_out.cols();
-  error = (-1.0 * Y.array() * net_out.array().log()).sum() / net_out.cols();
 }
 
 }  // unet namespace

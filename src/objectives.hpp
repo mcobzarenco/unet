@@ -13,40 +13,70 @@
 
 namespace unet {
 
+/**** L2 Error Objective ****/
+
+namespace internal {
+
 template<typename Net>
-struct L2Error {
-  L2Error(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+struct L2ErrorNoGradient {
+  L2ErrorNoGradient(
+    const Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
     : net_(net), X_(X), Y_(Y) {}
 
   template <typename Scalar>
-  inline Scalar operator()(const DynamicVector<Scalar>& weights) const;
+  inline Scalar operator()(const DynamicVector<Scalar>& weights) const {
+    CHECK_EQ(net_.num_params(), weights.size())
+      << "Expected " << net_.num_params() << " parameters.";
 
-  inline void gradient(const Eigen::VectorXd& weights, double& error,
-                       Eigen::VectorXd& gradient) const;
+    DynamicMatrix<Scalar> net_out{net_(weights, X_.cast<Scalar>().eval())};
+    DynamicMatrix<Scalar> discrepancy{net_out - Y_.cast<Scalar>()};
+    Scalar err = discrepancy.squaredNorm() / net_out.size();
+    return err;
+  }
 
-private:
-  Net& net_;
-  const Eigen::MatrixXd& X_, Y_;
+protected:
+  const Net& net_;
+  const Eigen::MatrixXd& X_;
+  const Eigen::MatrixXd& Y_;
 };
 
-template<typename Net>
-template <typename Scalar>
-Scalar L2Error<Net>::operator()(const DynamicVector<Scalar>& weights) const {
-  CHECK_EQ(net_.num_params(), weights.size())
-    << "Expected " << net_.num_params() << " parameters.";
+}  // namespace internal
 
-  DynamicMatrix<Scalar> net_out{net_(weights, X_.cast<Scalar>().eval())};
-  DynamicMatrix<Scalar> discrep{net_out - Y_.cast<Scalar>()};
-  Scalar err = (discrep.transpose() * discrep).trace();
-  return err / net_out.size();
-}
+namespace agrad {
 
 template<typename Net>
-inline void L2Error<Net>::gradient(
-  const Eigen::VectorXd& weights, double& error,
-  Eigen::VectorXd& gradient) const {
-  stan::agrad::gradient(*this, weights, error, gradient);
-}
+struct L2Error : public internal::L2ErrorNoGradient<Net> {
+  L2Error(const Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+    : internal::L2ErrorNoGradient<Net>{net, X, Y} {}
+
+  void gradient(const Eigen::VectorXd& weights, double& error,
+                Eigen::VectorXd& gradient) const {
+    stan::agrad::gradient(*this, weights, error, gradient);
+  }
+};
+
+}  // namespace agrad
+
+template<typename Net>
+struct L2Error : public internal::L2ErrorNoGradient<Net> {
+  L2Error(const Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+    : internal::L2ErrorNoGradient<Net>{net, X, Y} {}
+
+  void gradient(const Eigen::VectorXd& weights, double& error,
+                Eigen::VectorXd& gradient) const {
+    this->net_.gradient(weights, this->X_, this->Y_,
+                        L2Error<Net>::output_gradient, error, gradient);
+  }
+
+  static void output_gradient(
+    const Eigen::MatrixXd& network_out, const Eigen::MatrixXd& Y,
+    double& error, Eigen::MatrixXd& out_grad) {
+    out_grad = 2.0 * (network_out - Y) / network_out.size();
+    error = network_out.size() * out_grad.squaredNorm() / 4.0;
+  }
+};
+
+/**** Cross Entropy Objective ****/
 
 template<typename Scalar>
 DynamicVector<Scalar> labels_from_distribution(const DynamicMatrix<Scalar>& out) {
@@ -57,42 +87,69 @@ DynamicVector<Scalar> labels_from_distribution(const DynamicMatrix<Scalar>& out)
   return classes;
 }
 
+namespace internal {
+
 template<typename Net>
-struct CrossEntropy {
-  CrossEntropy(Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+struct CrossEntropyNoGradient {
+  CrossEntropyNoGradient(
+    const Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
     : net_(net), X_(X), Y_(Y) {}
 
   template <typename Scalar>
-  inline Scalar operator()(const DynamicVector<Scalar>& weights) const;
+  inline Scalar operator()(const DynamicVector<Scalar>& weights) const {
+    CHECK_EQ(net_.num_params(), weights.size())
+      << "Expected " << net_.num_params() << " parameters.";
+    DynamicMatrix<Scalar> net_out{net_(weights, X_.cast<Scalar>().eval())};
+    DynamicMatrix<Scalar> cross_entropy{
+      -1.0 * net_out.array().log() * Y_.cast<Scalar>().array()};
 
-  inline void gradient(const Eigen::VectorXd& weights, double& error,
-                       Eigen::VectorXd& gradient) const;
+    Scalar err = cross_entropy.sum() / cross_entropy.cols();
+    return err;
+  }
 
-  Eigen::VectorXd& weights() { return net_.weights(); }
-private:
-  Net& net_;
+protected:
+  const Net& net_;
   const Eigen::MatrixXd& X_, Y_;
 };
 
-template<typename Net>
-template <typename Scalar>
-Scalar CrossEntropy<Net>::operator()(const DynamicVector<Scalar>& weights) const {
-  CHECK_EQ(net_.num_params(), weights.size())
-    << "Expected " << net_.num_params() << " parameters.";
-  DynamicMatrix<Scalar> net_out{net_(weights, X_.cast<Scalar>().eval())};
-  DynamicMatrix<Scalar> cross_entropy{
-    -1.0 * net_out.array().log() * Y_.cast<Scalar>().array()};
+}  // namespace internal
 
-  Scalar err = cross_entropy.sum() / cross_entropy.cols();
-  return err;
-}
+namespace agrad {
 
 template<typename Net>
-inline void CrossEntropy<Net>::gradient(
-  const Eigen::VectorXd& weights, double& error,
-  Eigen::VectorXd& gradient) const {
-  stan::agrad::gradient(*this, weights, error, gradient);
-}
+struct CrossEntropy : public internal::CrossEntropyNoGradient<Net> {
+  CrossEntropy(const Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+    : internal::CrossEntropyNoGradient<Net>{net, X, Y} {}
+
+  void gradient(const Eigen::VectorXd& weights, double& error,
+                Eigen::VectorXd& gradient) const {
+    stan::agrad::gradient(*this, weights, error, gradient);
+  }
+};
+
+}  // namespace agrad
+
+template<typename Net>
+struct CrossEntropy : public internal::CrossEntropyNoGradient<Net> {
+  CrossEntropy(const Net& net, const Eigen::MatrixXd& X, const Eigen::MatrixXd& Y)
+    : internal::CrossEntropyNoGradient<Net>{net, X, Y} {}
+
+  void gradient(const Eigen::VectorXd& weights, double& error,
+                Eigen::VectorXd& gradient) const {
+    this->net_.gradient(weights, this->X_, this->Y_,
+                        CrossEntropy<Net>::output_gradient, error, gradient);
+  }
+
+  static void output_gradient(
+    const Eigen::MatrixXd& net_out, const Eigen::MatrixXd& Y,
+    double& error, Eigen::MatrixXd& out_grad) {
+    out_grad = -(Y.array() - net_out.array()) / net_out.cols();
+    error = (-1.0 * Y.array() * net_out.array().log()).sum() / net_out.cols();
+  }
+};
+
+
+/**** Accuracy ****/
 
 template<typename Net>
 struct Accuracy {
