@@ -11,6 +11,9 @@
 namespace unet {
 namespace internal {
 
+using std::tanh;
+using stan::agrad::tanh;
+
 template<typename NonLinearity>
 struct ApplyInPlace : public NonLinearity {
   static double derivative(const double x) {
@@ -37,18 +40,14 @@ struct ApplyInPlace : public NonLinearity {
 };
 
 struct Tanh {
+
   static const char* name() {
     static const char* NAME{"tanh"};
     return NAME;
   }
 
-  static double activation(const double x) {
-    return std::tanh(x);
-  }
-
-  static stan::agrad::var activation(const stan::agrad::var& x) {
-    return stan::agrad::tanh(x);
-  }
+  template<typename Scalar>
+  static Scalar activation(const Scalar& x) { return tanh(x); }
 
   static double derivative_value(double fx) {
     return 1.0 - fx * fx;
@@ -61,16 +60,13 @@ struct ReLU {
     return NAME;
   }
 
-  static double activation(const double x) {
-    return std::max(0.0, x);
-  }
-
-  static stan::agrad::var activation(const stan::agrad::var& x) {
-    return std::max(stan::agrad::var{0.0}, x);
+  template<typename Scalar>
+  static Scalar activation(const Scalar& x) {
+    return std::max(Scalar{0.0}, x);
   }
 
   static double derivative_value(double fx) {
-    return fx > 0.0 ? 1.0 : 0.0;
+    return static_cast<double>(fx > 0.0);
   }
 };
 
