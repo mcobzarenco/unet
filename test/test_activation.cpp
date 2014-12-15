@@ -26,20 +26,28 @@ void test_nonlinearity_consistency() {
     x = normal(generator);
     double_value = NonLinearity::activation(x);
     agard_value = NonLinearity::activation(stan::agrad::var{x});
-    EXPECT_EQ(double_value, agard_value);
+    ASSERT_EQ(double_value, agard_value);
   }
 
   // Test whether the matrix operations agree with their scalar counterparts
-  // VectorXd v_x{1}, auto_dx{1}, user_dx{1};
-  // double fx;
-  // for(uint32_t iter = 0; iter < 1000; ++iter) {
-  //   v_x[0] = normal(generator);
-  //   user_dx =
-  //     stan::agrad::gradient(CalcSigmoid{}, v_x, fx, auto_dx);
-  //   NonLinearity::derivative_in_place(v_x)
-  //     discrep = v_dx[0] - ;
-  //   EXPECT_LT(discrep * discrep, 1e-15);
-  // }
+  MatrixXd X{MatrixXd::Random(200, 200)};
+
+  MatrixXd X_activation{X};
+  NonLinearity::activation_in_place(X_activation);
+
+  MatrixXd X_derivative{X};
+  NonLinearity::derivative_in_place(X_derivative);
+
+  MatrixXd X_derivative_value{X_activation};
+  NonLinearity::derivative_value_in_place(X_derivative_value);
+
+  for(auto i = 0; i < X.rows(); ++i) {
+    for(auto j = 0; j < X.cols(); ++j) {
+      ASSERT_EQ(NonLinearity::activation(X(i, j)), X_activation(i, j));
+      ASSERT_EQ(NonLinearity::derivative(X(i, j)), X_derivative(i, j));
+      ASSERT_EQ(NonLinearity::derivative(X(i, j)), X_derivative_value(i, j));
+    }
+  }
 
   // Test that auto diff and the provided derivative agree
   VectorXd v_x{1}, auto_dx{1};
@@ -56,10 +64,20 @@ void test_nonlinearity_consistency() {
 
 TEST(Activation, Tanh) {
   test_nonlinearity_consistency<unet::Tanh>();
+  ASSERT_DOUBLE_EQ(-0.76159415595576485, unet::Tanh::activation(-1.0));
+  ASSERT_DOUBLE_EQ(-0.46211715726000974, unet::Tanh::activation(-0.5));
+  ASSERT_DOUBLE_EQ(0.0, unet::Tanh::activation(0.0));
+  ASSERT_DOUBLE_EQ(0.46211715726000974, unet::Tanh::activation(0.5));
+  ASSERT_DOUBLE_EQ(0.76159415595576485, unet::Tanh::activation(1.0));
 }
 
 TEST(Activation, ReLU) {
   test_nonlinearity_consistency<unet::ReLU>();
+  ASSERT_DOUBLE_EQ(0, unet::ReLU::activation(-1.0));
+  ASSERT_DOUBLE_EQ(0, unet::ReLU::activation(-0.5));
+  ASSERT_DOUBLE_EQ(0, unet::ReLU::activation(0.0));
+  ASSERT_DOUBLE_EQ(0.5, unet::ReLU::activation(0.5));
+  ASSERT_DOUBLE_EQ(1.0, unet::ReLU::activation(1.0));
 }
 
 TEST(Activation, Softmax) {

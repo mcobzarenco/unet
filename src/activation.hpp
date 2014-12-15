@@ -21,26 +21,25 @@ struct ApplyInPlace : public NonLinearity {
   }
 
   template<typename Scalar>
-  static void activation_in_place(DynamicMatrix<Scalar>& x) {
-    auto nlin = [] (const Scalar& x) {return NonLinearity::activation(x);};
-    std::transform(x.data(), x.data() + x.size(), x.data(), nlin);
+  static void activation_in_place(DynamicMatrix<Scalar>& X) {
+    auto map = [] (const Scalar& x) {return NonLinearity::activation(x);};
+    std::transform(X.data(), X.data() + X.size(), X.data(), map);
   }
 
   template<typename Scalar>
-  static void derivative_in_place(DynamicMatrix<Scalar>& x) {
-    auto nlin = [] (const Scalar& x) {return NonLinearity::derivative(x);};
-    std::transform(x.data(), x.data() + x.size(), x.data(), nlin);
+  static void derivative_in_place(DynamicMatrix<Scalar>& X) {
+    auto map = [] (const Scalar& x) {return derivative(x);};
+    std::transform(X.data(), X.data() + X.size(), X.data(), map);
   }
 
   template<typename Scalar>
-  static void derivative_value_in_place(DynamicMatrix<Scalar>& x) {
-    auto nlin = [] (const Scalar& x) {return NonLinearity::derivative_value(x);};
-    std::transform(x.data(), x.data() + x.size(), x.data(), nlin);
+  static void derivative_value_in_place(DynamicMatrix<Scalar>& X) {
+    auto map = [] (const Scalar& x) {return NonLinearity::derivative_value(x);};
+    std::transform(X.data(), X.data() + X.size(), X.data(), map);
   }
 };
 
 struct Tanh {
-
   static const char* name() {
     static const char* NAME{"tanh"};
     return NAME;
