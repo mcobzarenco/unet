@@ -49,7 +49,6 @@ struct FixedOutput {
 };
 }  // anonymous namespace
 
-
 TEST(Objectives, L2Error) {
   Eigen::MatrixXd X{3, 2};
   Eigen::MatrixXd y{3, 2};
